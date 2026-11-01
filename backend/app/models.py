@@ -41,3 +41,27 @@ class ProgramPatch(Strict):
 
 class SettingsPatch(Strict):
     split_hot: bool | None = None
+
+
+class GarmentIn(Strict):
+    person_id: int
+    name: str = Field(min_length=1, max_length=60)
+    max_temp: Temp
+    color: Color
+    max_spin: Spin
+    care: Care
+    tumble_dry: bool
+
+
+class GarmentPatch(Strict):
+    person_id: int | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    max_temp: Temp | None = None
+    color: Color | None = None
+    max_spin: Spin | None = None
+    care: Care | None = None
+    tumble_dry: bool | None = None
+
+
+class BasketIn(Strict):
+    in_basket: bool

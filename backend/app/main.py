@@ -5,12 +5,13 @@ from pathlib import Path
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
+from starlette.staticfiles import StaticFiles
 
 from app.config import resolve_data_dir
 from app.db import connect, init_db
 from app.events import EventBus
-from app.routers import events, people, programs, settings
+from app.routers import events, garments, people, programs, settings
 from app.web import http_error
 
 
@@ -31,7 +32,9 @@ def create_app(data_dir: Path | None = None) -> Starlette:
         *people.routes,
         *programs.routes,
         *settings.routes,
+        *garments.routes,
         *events.routes,
+        Mount("/photos", app=StaticFiles(directory=data_dir / "photos"), name="photos"),
     ]
     app = Starlette(routes=routes, exception_handlers={HTTPException: http_error})
     app.state.bus = EventBus()
