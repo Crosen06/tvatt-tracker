@@ -3,6 +3,7 @@
 import sqlite3
 
 from app import clock
+from app.kitchen.ingredients import ItemRef, match
 
 FREQUENT_MAX = 24
 
@@ -175,5 +176,34 @@ def archive_item(conn, item_id: int) -> None:
     rematch_unknown(conn)
 
 
+def item_refs(conn) -> list[ItemRef]:
+    rows = conn.execute("SELECT id, name, match_words FROM item WHERE archived=0 ORDER BY id")
+    return [ItemRef(r["id"], r["name"], [w for w in r["match_words"].split(",") if w]) for r in rows]
+
+
+def ingredient_mapping(conn) -> dict[str, int | None]:
+    return {r["name"]: r["item_id"] for r in conn.execute("SELECT name, item_id FROM ingredient_map")}
+
+
+def _link_rows(conn, rows) -> None:
+    refs, mapping = item_refs(conn), ingredient_mapping(conn)
+    for r in rows:
+        iid, ignored = match(r["name"], refs, mapping)
+        conn.execute(
+            "UPDATE recipe_ingredient SET item_id=?, ignored=? WHERE id=?", (iid, int(ignored), r["id"])
+        )
+
+
+def link_ingredients(conn, recipe_id: int) -> None:
+    """(Re)match every line of one recipe."""
+    _link_rows(conn, conn.execute("SELECT id, name FROM recipe_ingredient WHERE recipe_id=?", (recipe_id,)).fetchall())
+
+
 def rematch_unknown(conn: sqlite3.Connection) -> None:
-    """Re-link recipe lines without an item. Replaced by real matching in the recipes step."""
+    """Try again for lines that have no item yet and that nobody chose to ignore."""
+    rows = conn.execute(
+        "SELECT ri.id, ri.name FROM recipe_ingredient ri JOIN recipe r ON r.id = ri.recipe_id "
+        "WHERE ri.item_id IS NULL AND ri.ignored = 0 AND r.archived = 0"
+    ).fetchall()
+    if rows:
+        _link_rows(conn, rows)
