@@ -7,6 +7,8 @@ PIP="${TVATT_PIP:-$REPO/.venv/bin/pip}"
 cd "$REPO"
 git pull --ff-only
 "$PIP" install -q -r backend/requirements.txt
+# Optional, better barcode reader. Scanning still works with OpenCV if it cannot be installed.
+"$PIP" install -q zxing-cpp || echo "zxing-cpp kunde inte installeras; streckkoder läses med OpenCV i stället."
 
 # Keep the data folder the app was installed with, then refresh the systemd unit if it changed.
 DATA_DIR="$(sed -n 's/^Environment=TVATT_DATA=//p' "$UNIT" 2>/dev/null | head -n1 || true)"

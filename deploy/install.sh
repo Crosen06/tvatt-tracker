@@ -51,6 +51,8 @@ step "Skapar Python-miljö"
 python3 -m venv "$REPO/.venv"
 "$REPO/.venv/bin/pip" install --upgrade pip
 "$REPO/.venv/bin/pip" install -r "$REPO/backend/requirements.txt"
+# Optional, better barcode reader. Scanning still works with OpenCV if it cannot be installed.
+"$REPO/.venv/bin/pip" install -q zxing-cpp || echo "zxing-cpp kunde inte installeras; streckkoder läses med OpenCV i stället."
 mkdir -p "$DATA_DIR"
 
 step "Installerar tjänsten tvatt"

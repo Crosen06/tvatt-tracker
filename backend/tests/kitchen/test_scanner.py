@@ -204,3 +204,56 @@ def test_start_right_after_stop_restarts(made):
     stopper.join()
     time.sleep(0.5)
     assert s.running
+
+
+def test_decode_full_hd_frame():
+    # Real codes are only readable from a full-HD frame; make sure decoding works at that size.
+    assert decode(ean13_frame(CODE, module_px=3, size=(1080, 1920))) == [CODE]
+
+
+def test_preview_is_downscaled():
+    import cv2
+
+    small = scanner.preview(ean13_frame(CODE, size=(1080, 1920)), cv2)
+    assert small.shape[:2] == (360, 640)
+    frame = ean13_frame(CODE)
+    assert scanner.preview(frame, cv2) is frame
+
+
+@pytest.mark.parametrize("raw, size", [("1280x720", (1280, 720)), ("", (1920, 1080)), ("bad", (1920, 1080)),
+                                       ("0x0", (1920, 1080))])
+def test_capture_size_from_env(monkeypatch, raw, size):
+    monkeypatch.setenv("TVATT_CAMERA_SIZE", raw)
+    assert scanner.capture_size() == size
+
+
+class _Result:
+    def __init__(self, text):
+        self.text = text
+
+
+def test_zxing_used_when_installed(monkeypatch):
+    seen = []
+
+    class FakeZxing:
+        @staticmethod
+        def read_barcodes(img):
+            seen.append(img.ndim)
+            return [_Result("7310865004703"), _Result("123"), _Result("7310865004703")]
+
+    monkeypatch.setattr(scanner, "_zxing", FakeZxing)
+    assert decode(blank_frame()) == ["7310865004703"]  # invalid and repeated codes dropped
+    assert seen == [2]  # given a grey image
+    assert scanner.decoder_name() == "zxing-cpp"
+
+
+def test_broken_zxing_falls_back_to_opencv(monkeypatch):
+    class BrokenZxing:
+        @staticmethod
+        def read_barcodes(img):
+            raise TypeError("unexpected build")
+
+    monkeypatch.setattr(scanner, "_zxing", BrokenZxing)
+    assert decode(ean13_frame(CODE)) == [CODE]
+    assert scanner._zxing is False  # not tried again
+    assert scanner.decoder_name() == "OpenCV"

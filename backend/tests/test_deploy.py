@@ -155,3 +155,11 @@ def test_check_kitchen_offline_and_fake_camera(tmp_path):
     assert "✓ Kamera" in out and "4006381333931" in out
     assert "✗ Open Food Facts" in out and "✗ ICA-sök" in out
     assert "Traceback" not in out + r.stderr
+
+
+def test_update_installs_optional_zxing(tmp_path):
+    env, log = update_env(tmp_path)
+    r = run("update.sh", env)
+    assert r.returncode == 0, r.stderr
+    assert "zxing-cpp" in log.read_text()
+    assert "zxing-cpp" in (DEPLOY / "install.sh").read_text()

@@ -72,6 +72,15 @@ Du behöver Raspberry Pi OS med skrivbord, och Pi:n ska vara ansluten till hemme
 3. Känner appen igen varan väljer du **In i skafferiet**, **På inköpslistan** eller **Slut**. Är den ny föreslår appen ett namn från Open Food Facts; tryck **Ny vara** eller välj en befintlig vara. Nästa gång känns koden igen direkt.
 4. Går koden inte att läsa trycker du **Skriv koden** och skriver siffrorna under strecken.
 
+Appen ber kameran om full HD (1920×1080) och läser koderna med zxing-cpp om det gick att installera, annars med OpenCV. Vill du se vad kameran faktiskt ger, stäng skanningen i appen och kör:
+
+```bash
+cd ~/tvatt-tracker
+.venv/bin/python scripts/camera_test.py
+```
+
+Skriptet visar upplösning, bildformat, autofokus och skärpa, försöker läsa en streckkod i 15 sekunder och sparar den skarpaste bilden i `~/tvatt-data/kamera-test.jpg`. Om datorn blir för långsam med full HD kan du sänka upplösningen med raden `Environment=TVATT_CAMERA_SIZE=1280x720` i `/etc/systemd/system/tvatt.service`.
+
 ### Kontrollera att allt fungerar på Pi:n
 Kameran, ICA och Open Food Facts kunde inte provas när appen byggdes, så kör det här efter installationen:
 
@@ -108,7 +117,7 @@ sudo systemctl start tvatt
 | Klockan visar fel tid | `sudo timedatectl set-timezone Europe/Stockholm` |
 | "Bildformatet stöds inte" | Ta bilden direkt med kameran i stället för att välja en fil. |
 | "Ingen kamera hittades" | Kontrollera att webbkameran sitter i och syns med `ls /dev/video*`. Starta om appen med `sudo systemctl restart tvatt`. Har du flera kameror kan du välja en annan med raden `Environment=TVATT_CAMERA=1` i `/etc/systemd/system/tvatt.service`. |
-| Streckkoden läses inte | Mer ljus hjälper, och håll varan stilla 15–25 cm från kameran. Det går alltid att trycka **Skriv koden**. |
+| Streckkoden läses inte | Kör `.venv/bin/python scripts/camera_test.py` och titta på bilden `~/tvatt-data/kamera-test.jpg`. Är strecken suddiga har kameran fast fokus: håll varan längre bort (30–40 cm). Är de små och kantiga ger kameran för låg upplösning. Mer ljus hjälper alltid. Det går också att trycka **Skriv koden**. |
 | "Kunde inte nå ica.se" | Pi:n behöver internet för ICA-sök, import och Open Food Facts. Kör `scripts/check_kitchen.py`. Visar ICA-sök ✗ fast internet fungerar har ica.se troligen ändrat sin sida; import via länk fungerar ofta ändå. |
 | Skärmen släcks aldrig | `sudo raspi-config` → Display Options → Screen Blanking → på. |
 
