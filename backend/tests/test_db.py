@@ -39,3 +39,14 @@ def test_data_dir_created(app, data_dir):
     assert (data_dir / "photos").is_dir()
     assert (data_dir / "photos" / "thumb").is_dir()
     assert (data_dir / "tvatt.db").is_file()
+
+
+def test_spa_fallback(client):
+    for path in ("/", "/?kiosk=1", "/admin"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert "<div id=\"root\"></div>" in r.text
+        assert r.headers["cache-control"] == "no-cache"
+    assert client.get("/app.js").status_code == 200
+    assert client.get("/api/nope").status_code == 404
+    assert client.get("/api/nope").json() == {"detail": "Not Found"}

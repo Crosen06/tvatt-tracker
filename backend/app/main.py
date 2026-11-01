@@ -4,7 +4,7 @@ from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -15,8 +15,25 @@ from app.routers import events, garments, people, programs, settings, suggestion
 from app.web import http_error
 
 
+STATIC_DIR = Path(__file__).parent / "static"
+
+
 async def health(request):
     return JSONResponse({"ok": True})
+
+
+async def spa(request):
+    """Serve built files, falling back to index.html for client-side routes."""
+    path = request.path_params.get("path", "")
+    if path.startswith("api/") or path == "api":
+        raise HTTPException(404, "Not Found")
+    candidate = (STATIC_DIR / path).resolve()
+    if path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
+        return FileResponse(candidate, headers={"Cache-Control": "public, max-age=604800"})
+    index = STATIC_DIR / "index.html"
+    if not index.is_file():
+        return JSONResponse({"detail": "Gränssnittet är inte byggt. Kör: cd frontend && node build.mjs"}, 503)
+    return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
 
 def create_app(data_dir: Path | None = None) -> Starlette:
@@ -37,6 +54,7 @@ def create_app(data_dir: Path | None = None) -> Starlette:
         *washes.routes,
         *events.routes,
         Mount("/photos", app=StaticFiles(directory=data_dir / "photos"), name="photos"),
+        Route("/{path:path}", spa, methods=["GET", "HEAD"]),
     ]
     app = Starlette(routes=routes, exception_handlers={HTTPException: http_error})
     app.state.bus = EventBus()
