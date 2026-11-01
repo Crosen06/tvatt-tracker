@@ -28,3 +28,7 @@ export const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // Swedish genitive: "Kikis", but "Magnus" stays "Magnus".
 export const genitive = (name = "") => (/[sxz]$/i.test(name) ? name : `${name}s`);
+
+// Mirrors backend grouping.GENTLENESS: a program must be at least as gentle as the garments need.
+export const GENTLENESS = { normal: 0, synthetic: 1, delicate: 2, wool: 3, hand: 3 };
+export const programAllowed = (garmentCare, programCare) => GENTLENESS[programCare] >= GENTLENESS[garmentCare];

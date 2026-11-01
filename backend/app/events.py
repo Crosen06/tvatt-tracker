@@ -21,12 +21,20 @@ class EventBus:
                 else:
                     self._loop.call_soon_threadsafe(q.put_nowait, topic)
 
-    async def subscribe(self) -> AsyncIterator[str]:
+    def open(self) -> asyncio.Queue:
+        """Register a listener queue; always pair with close()."""
         self._loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue()
         self._queues.add(q)
+        return q
+
+    def close(self, q: asyncio.Queue) -> None:
+        self._queues.discard(q)
+
+    async def subscribe(self) -> AsyncIterator[str]:
+        q = self.open()
         try:
             while True:
                 yield await q.get()
         finally:
-            self._queues.discard(q)
+            self.close(q)

@@ -54,6 +54,15 @@ class Selection:
     conflicts: list[str]
 
 
+# How gentle a program/garment care type is. A program may be used when it is at
+# least as gentle as the gentlest requirement among the garments.
+GENTLENESS = {"normal": 0, "synthetic": 1, "delicate": 2, "wool": 3, "hand": 3}
+
+
+def program_allowed(garment_care: str, program_care: str) -> bool:
+    return GENTLENESS[program_care] >= GENTLENESS[garment_care]
+
+
 def care_class(care: str) -> str:
     return "standard" if care in ("normal", "synthetic") else care
 

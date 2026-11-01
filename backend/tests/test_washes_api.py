@@ -165,3 +165,14 @@ def test_program_too_hot_for_garments_400(client, now):
     r = client.post("/api/washes", json={"program_id": hot["id"], "garment_ids": [a["id"]], "temp": 40, "spin": 1200})
     assert r.status_code == 400
     assert r.json()["detail"] == "Programmet är för varmt för plaggen."
+
+
+def test_program_too_harsh_for_care_400(client, now):
+    w = in_basket(client, care="wool", max_temp=30)
+    progs = client.get("/api/programs").json()
+    quick = next(p for p in progs if p["name"] == "Snabbtvätt 30°")
+    r = client.post("/api/washes", json={"program_id": quick["id"], "garment_ids": [w["id"]]})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Programmet är för hårt för plaggen."
+    wool = next(p for p in progs if p["name"] == "Ull 30°")
+    assert client.post("/api/washes", json={"program_id": wool["id"], "garment_ids": [w["id"]]}).status_code == 201

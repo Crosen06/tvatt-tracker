@@ -6,12 +6,14 @@ from starlette.routing import Route
 from app import clock
 from app.db import open_db
 from app.models import BasketIn, GarmentIn, GarmentPatch
-from app.photos import UnsupportedPhoto, delete_photo, save_photo
+from app.photos import PhotoTooLarge, UnsupportedPhoto, delete_photo, save_photo
 from app.web import no_content, ok, parse, path_id, publish, validate
 
 MAX_UPLOAD = 20 * 1024 * 1024
 MSG_FORMAT = "Bildformatet stöds inte. Ta en ny bild med kameran."
 MSG_IN_WASH = "Plagget ligger i maskinen just nu."
+MSG_TOO_BIG = "Bilden är för stor. Ta en ny bild med kameran."
+CHUNK = 1024 * 1024
 
 SELECT = """
 SELECT g.*, EXISTS(
@@ -61,17 +63,32 @@ def _coerce_form(fields: dict) -> dict:
     return fields
 
 
+def _check_length(request) -> None:
+    """Refuse oversized requests before the body is read."""
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > MAX_UPLOAD + CHUNK:
+        raise HTTPException(413, MSG_TOO_BIG)
+
+
 async def _read_photo(form, request) -> str:
     upload = form.get("photo")
     if not isinstance(upload, UploadFile):
         raise HTTPException(422, "Foto saknas.")
-    data = await upload.read()
+    chunks, size = [], 0
+    while chunk := await upload.read(CHUNK):
+        size += len(chunk)
+        if size > MAX_UPLOAD:
+            raise HTTPException(413, MSG_TOO_BIG)
+        chunks.append(chunk)
+    data = b"".join(chunks)
     if not data:
         raise HTTPException(422, "Foto saknas.")
     try:
         return await run_in_threadpool(save_photo, data, request.app.state.data_dir / "photos")
     except UnsupportedPhoto:
         raise HTTPException(415, MSG_FORMAT)
+    except PhotoTooLarge:
+        raise HTTPException(413, MSG_TOO_BIG)
 
 
 async def list_garments(request):
@@ -88,6 +105,7 @@ async def list_garments(request):
 
 
 async def create_garment(request):
+    _check_length(request)
     async with request.form(max_part_size=MAX_UPLOAD) as form:
         fields = _coerce_form({k: v for k, v in form.items() if k != "photo"})
         body = validate(GarmentIn, fields)
@@ -127,6 +145,7 @@ async def patch_garment(request):
 
 async def replace_photo(request):
     gid = path_id(request)
+    _check_length(request)
     with open_db(request) as conn:
         old = fetch_garment(conn, gid)["photo"]
     async with request.form(max_part_size=MAX_UPLOAD) as form:

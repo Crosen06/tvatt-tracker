@@ -26,7 +26,7 @@ Du behöver Raspberry Pi OS med skrivbord, och Pi:n ska vara ansluten till hemme
    - installerar Python-miljön och Chromium
    - startar appen som en tjänst som går igång automatiskt vid start
    - byter värdnamn till `tvatt`, så att appen nås på `http://tvatt.local`
-   - ställer in att Pi:n startar direkt i skrivbordet, att tvätt-trackern öppnas i helskärm och att skärmen släcks när den inte används (tryck på skärmen för att väcka den)
+   - ställer in att Pi:n startar direkt i skrivbordet, att tvätt-trackern öppnas i helskärm och att skärmen släcks när den inte används. Tryck på skärmen för att väcka den; det första trycket väcker bara skärmen och trycker inte på något. När en tvätt är klar tänds skärmen av sig själv.
 
    Vill du behålla värdnamnet kör du `./deploy/install.sh --no-hostname`. Då nås appen på `http://<pi:ns-namn>.local`.
 
@@ -55,10 +55,12 @@ cd ~/tvatt-tracker
 
 ## Säkerhetskopiera
 
-Alla plagg, foton och inställningar ligger i `~/tvatt-data`. Kopiera den mappen för att ta en säkerhetskopia:
+Alla plagg, foton och inställningar ligger i `~/tvatt-data`. Stoppa appen en kort stund medan mappen kopieras, så att databasen inte ändras mitt i kopieringen:
 
 ```bash
+sudo systemctl stop tvatt
 cp -r ~/tvatt-data ~/tvatt-data-backup-$(date +%F)
+sudo systemctl start tvatt
 ```
 
 ## Felsökning

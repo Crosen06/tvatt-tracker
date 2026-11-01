@@ -42,6 +42,10 @@ sudo apt-get install -y python3-venv python3-pip avahi-daemon curl
 if [ "$SET_KIOSK" -eq 1 ] && ! command -v chromium >/dev/null && ! command -v chromium-browser >/dev/null; then
   sudo apt-get install -y chromium || sudo apt-get install -y chromium-browser
 fi
+if [ "$SET_KIOSK" -eq 1 ]; then
+  # wlopm turns the screen on when a wash is done (Wayland). Optional: skip if unavailable.
+  sudo apt-get install -y wlopm || echo "wlopm saknas; skärmen tänds inte automatiskt när tvätten är klar."
+fi
 
 step "Skapar Python-miljö"
 python3 -m venv "$REPO/.venv"
@@ -85,7 +89,7 @@ if [ "$SET_KIOSK" -eq 1 ]; then
     sudo raspi-config nonint do_blanking 0
   fi
   mkdir -p "$HOME/.config/autostart"
-  chmod +x "$REPO/deploy/kiosk.sh"
+  chmod +x "$REPO/deploy/kiosk.sh" "$REPO/deploy/wake-on-done.sh"
   cat > "$HOME/.config/autostart/tvatt-kiosk.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application

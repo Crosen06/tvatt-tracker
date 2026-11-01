@@ -10,22 +10,18 @@ async def stream(request):
     bus = request.app.state.bus
 
     async def gen():
-        yield "retry: 3000\n\n"
-        sub = bus.subscribe()
-        nxt = asyncio.ensure_future(sub.__anext__())
+        q = bus.open()
         try:
+            yield "retry: 3000\n\n"
             while True:
-                done, _ = await asyncio.wait({nxt}, timeout=PING_SECONDS)
-                if await request.is_disconnected():
-                    break
-                if done:
-                    yield f"event: changed\ndata: {nxt.result()}\n\n"
-                    nxt = asyncio.ensure_future(sub.__anext__())
-                else:
+                try:
+                    topic = await asyncio.wait_for(q.get(), PING_SECONDS)
+                except asyncio.TimeoutError:
                     yield ": ping\n\n"
+                else:
+                    yield f"event: changed\ndata: {topic}\n\n"
         finally:
-            nxt.cancel()
-            await sub.aclose()
+            bus.close(q)
 
     headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)

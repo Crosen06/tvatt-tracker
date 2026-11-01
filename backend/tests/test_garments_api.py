@@ -109,3 +109,25 @@ def test_archive_or_toggle_in_wash_409(client, conn):
 
 def test_garment_404(client):
     assert client.post("/api/garments/999/basket", json={"in_basket": True}).status_code == 404
+
+
+FIELDS = {"person_id": "1", "name": "x", "max_temp": "40", "color": "dark", "max_spin": "1200", "care": "normal", "tumble_dry": "true"}
+MSG_TOO_BIG = "Bilden är för stor. Ta en ny bild med kameran."
+
+
+def test_upload_too_large_413(client):
+    big = b"\xff\xd8" + b"\0" * (21 * 1024 * 1024)
+    r = client.post("/api/garments", data=FIELDS, files={"photo": ("p.jpg", big, "image/jpeg")})
+    assert r.status_code == 413
+    assert r.json()["detail"] == MSG_TOO_BIG
+
+
+def test_huge_pixel_count_413(client):
+    import io
+
+    buf = io.BytesIO()
+    Image.new("1", (12000, 12000)).save(buf, "PNG")
+    r = client.post("/api/garments", data=FIELDS, files={"photo": ("p.png", buf.getvalue(), "image/png")})
+    assert r.status_code == 413
+    assert r.json()["detail"] == MSG_TOO_BIG
+

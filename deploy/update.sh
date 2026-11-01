@@ -6,6 +6,6 @@ cd "$REPO"
 git pull --ff-only
 "$REPO/.venv/bin/pip" install -q -r backend/requirements.txt
 sudo systemctl restart tvatt.service
-# kiosk.sh restarts Chromium by itself, so closing it reloads the new interface.
-pkill -f "tvatt-kiosk" >/dev/null 2>&1 || true
+# kiosk.sh restarts Chromium by itself, so closing it loads the new interface.
+pkill -f "user-data-dir=$HOME/.config/tvatt-kiosk" >/dev/null 2>&1 || true
 echo "Uppdaterat till $(git log -1 --format='%h %s')"

@@ -197,3 +197,106 @@ def test_wash_flow_done_overlay(server, browser):
     assert garments[a["id"]]["in_basket"] is False
     assert sum(g["in_basket"] for g in garments.values()) == 1
     assert errors == []
+
+
+def _finish_soon(db, seconds=1):
+    soon = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(timespec="seconds")
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE wash SET ends_at=? WHERE status='running'", (soon,))
+
+
+def _start_wash(base, garment_ids, program_name="Bomull 40°"):
+    prog = next(p for p in api(base, "GET", "/api/programs") if p["name"] == program_name)
+    return api(base, "POST", "/api/washes", {"program_id": prog["id"], "garment_ids": garment_ids})
+
+
+def test_done_on_phone_is_a_dismissable_banner(server, browser):
+    base = server["base"]
+    g = add_garment(base, "Svart hoodie", in_basket=True)
+    _start_wash(base, [g["id"]])
+    _finish_soon(server["db"])
+    errors = []
+    phone = new_page(browser, PHONE, errors)
+    phone.goto(base + "/#/admin")
+    banner = phone.get_by_role("status").filter(has_text="Tvätten är klar")
+    pw.expect(banner).to_be_visible(timeout=5000)
+    pw.expect(phone.get_by_role("heading", name="Tvätten är klar!")).to_have_count(0)
+    shot(phone, "phone-done-banner")
+    banner.get_by_role("button", name="Stäng").click()
+    pw.expect(banner).to_be_hidden()
+    phone.get_by_role("button", name="Alla plagg").click()
+    pw.expect(phone.get_by_role("heading", name="Alla plagg")).to_be_visible()
+    assert api(base, "GET", "/api/washes/current")["wash"] is not None
+    assert errors == []
+
+
+def test_wake_tap_is_swallowed_after_idle(server, browser):
+    add_garment(server["base"], "Svart hoodie")
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.clock.install()
+    pg.goto(server["base"] + "/?kiosk=1")
+    pw.expect(pg.get_by_role("button", name="Svart hoodie, Inte i tvättkorgen")).to_be_visible()
+    pg.clock.fast_forward("10:00")
+    pg.get_by_role("button", name="Svart hoodie, Inte i tvättkorgen").click()
+    pg.wait_for_timeout(300)
+    assert api(server["base"], "GET", "/api/garments")[0]["in_basket"] is False
+    pg.get_by_role("button", name="Svart hoodie, Inte i tvättkorgen").click()
+    pw.expect(pg.get_by_role("button", name="Svart hoodie, I tvättkorgen")).to_be_visible()
+    assert errors == []
+
+
+def test_offline_banner_clears_after_successful_reload(server, browser):
+    base = server["base"]
+    g = add_garment(base, "Svart hoodie")
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1")
+    pw.expect(pg.get_by_role("button", name="Svart hoodie, Inte i tvättkorgen")).to_be_visible()
+    pg.route("**/api/garments", lambda route: route.abort())
+    api(base, "POST", f"/api/garments/{g['id']}/basket", {"in_basket": True})
+    pw.expect(pg.get_by_text("Ingen kontakt med tvätt-trackern")).to_be_visible(timeout=5000)
+    pg.unroute("**/api/garments")
+    api(base, "POST", f"/api/garments/{g['id']}/basket", {"in_basket": False})
+    pw.expect(pg.get_by_text("Ingen kontakt med tvätt-trackern")).to_be_hidden(timeout=5000)
+
+
+def test_pick_start_waits_for_current_check(server, browser):
+    base = server["base"]
+    add_garment(base, "A", in_basket=True)
+    add_garment(base, "B", in_basket=True)
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    held = []
+    pg.goto(base + "/?kiosk=1#/tvatta")
+    pg.get_by_role("tab", name="Välj själv").click()
+    pg.get_by_role("button", name="A", exact=True).click()
+    pw.expect(pg.get_by_role("button", name="Starta tvätt (1)")).to_be_enabled()
+    pg.route("**/api/suggestions/check", lambda route: held.append(route))
+    pg.get_by_role("button", name="B", exact=True).click()
+    pw.expect(pg.get_by_role("button", name="Starta tvätt (1)")).to_have_count(0)
+    start = pg.get_by_role("button", name="Starta tvätt (2)")
+    if start.count():
+        pw.expect(start).to_be_disabled()
+    for _ in range(50):
+        if held:
+            break
+        pg.wait_for_timeout(50)
+    held[0].continue_()
+    pw.expect(pg.get_by_role("button", name="Starta tvätt (2)")).to_be_enabled()
+    assert errors == []
+
+
+def test_wool_cannot_use_cotton_program(server, browser):
+    base = server["base"]
+    from urllib.request import Request  # noqa: F401
+
+    g = add_garment(base, "Ullsockor", in_basket=True)
+    api(base, "PATCH", f"/api/garments/{g['id']}", {"care": "wool", "max_temp": 30})
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/tvatta")
+    pg.locator(".suggestion").first.get_by_role("button", name="Starta tvätt").click()
+    pw.expect(pg.get_by_role("radio", name="Snabbtvätt 30°")).to_be_disabled()
+    pw.expect(pg.get_by_role("radio", name="Ull 30°")).to_be_enabled()
+    assert errors == []

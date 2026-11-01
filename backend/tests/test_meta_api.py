@@ -89,3 +89,32 @@ def test_mutation_publishes(app, client):
     app.state.bus.publish = seen.append
     client.patch("/api/settings", json={"split_hot": False})
     assert seen == ["settings"]
+
+
+def test_sse_disconnect_is_clean(app):
+    """A client that goes away must not raise (it used to log a traceback per disconnect)."""
+    sent = []
+
+    async def run():
+        disconnected = asyncio.Event()
+
+        async def receive():
+            await disconnected.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            sent.append(message)
+            if message["type"] == "http.response.body" and message.get("body"):
+                disconnected.set()
+
+        scope = {
+            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+            "scheme": "http", "path": "/api/events", "raw_path": b"/api/events", "query_string": b"",
+            "root_path": "", "headers": [], "client": ("127.0.0.1", 1), "server": ("127.0.0.1", 80),
+            "state": {},
+        }
+        await asyncio.wait_for(app(scope, receive, send), 3)
+        assert app.state.bus._queues == set()
+
+    asyncio.run(run())
+    assert sent[0]["status"] == 200

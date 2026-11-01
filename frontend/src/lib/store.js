@@ -64,6 +64,7 @@ export function reload(...names) {
     pending.clear();
     try {
       await Promise.all(batch.map((n) => loaders[n]()));
+      if (!state.online) set({ online: true });
     } catch {
       set({ online: false });
     }

@@ -33,7 +33,7 @@ export default function TopBar({ route }) {
       </nav>
       <div className="topbar-right">
         {wash && (
-          <button className="wash-chip" onClick={() => navigate("/tvatta")} aria-label={`Tvätt pågår, ${formatShort(left)} kvar`}>
+          <button className="wash-chip" onClick={() => navigate("/tvatta")} aria-label={left > 0 ? `Tvätt pågår, ${formatShort(left)} kvar` : "Tvätten är klar"}>
             <Porthole size={34} progress={progress(wash, serverOffsetMs, now)} running={left > 0} done={left <= 0} />
             <span className="wash-chip-time">{formatShort(left)}</span>
           </button>

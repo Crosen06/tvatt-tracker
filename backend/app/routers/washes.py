@@ -5,6 +5,7 @@ from starlette.routing import Route
 
 from app import clock
 from app.db import open_db
+from app.grouping import GENTLENESS, program_allowed
 from app.models import WashIn
 from app.routers.garments import SELECT, garment_json
 from app.web import ok, parse, path_id, publish
@@ -65,6 +66,10 @@ async def start_wash(request):
         max_temp, max_spin = found[1], found[2]
         if prog["temp"] > max_temp:
             raise HTTPException(400, "Programmet är för varmt för plaggen.")
+        cares = [r[0] for r in conn.execute(f"SELECT care FROM garment WHERE id IN ({marks})", ids)]
+        gentlest = max(cares, key=GENTLENESS.__getitem__)
+        if not program_allowed(gentlest, prog["care"]):
+            raise HTTPException(400, "Programmet är för hårt för plaggen.")
         spin = min(body.spin, max_spin) if body.spin is not None else max_spin
         ends = now + timedelta(minutes=prog["duration_min"])
         cur = conn.execute(

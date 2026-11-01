@@ -14,6 +14,7 @@ export default function PickMode({ basket, busy, onStart }) {
     setSelected((sel) => sel.filter((id) => basket.some((g) => g.id === id)));
   }, [basketIds]);
 
+  const key = selected.join(",");
   useEffect(() => {
     if (!selected.length) {
       setResult(null);
@@ -21,14 +22,17 @@ export default function PickMode({ basket, busy, onStart }) {
     }
     const n = ++seq.current;
     api.post("/api/suggestions/check", { garment_ids: selected }).then(
-      (r) => n === seq.current && setResult(r),
+      (r) => n === seq.current && setResult({ ...r, key }),
       () => n === seq.current && setResult(null),
     );
-  }, [selected.join(","), basketIds]);
+  }, [key, basketIds]);
 
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const compatible = new Set(result?.compatible_ids || []);
-  const group = result?.group;
+  // Only trust an answer that belongs to the current selection.
+  const current = result && result.key === key ? result : null;
+  const checking = selected.length > 0 && !current;
+  const compatible = new Set(current?.compatible_ids || []);
+  const group = current?.group;
 
   return (
     <>
@@ -50,9 +54,10 @@ export default function PickMode({ basket, busy, onStart }) {
       </div>
       <div className="pick-panel">
         {!selected.length && <p className="hint">Tryck på plaggen du vill tvätta. De som passar ihop markeras.</p>}
-        {result?.conflicts?.length > 0 && (
+        {checking && <p className="hint">Kollar vad som passar ihop…</p>}
+        {current?.conflicts?.length > 0 && (
           <div className="conflicts">
-            {result.conflicts.map((c) => (
+            {current.conflicts.map((c) => (
               <p key={c}>{c}</p>
             ))}
           </div>

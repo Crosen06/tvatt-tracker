@@ -4,12 +4,15 @@
 # Chromium is restarted automatically if it crashes or is closed.
 set -u
 
-URL="${TVATT_URL:-http://localhost/?kiosk=1}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="${TVATT_BASE:-http://localhost}"
+URL="${TVATT_URL:-$BASE/?kiosk=1}"
 PROFILE="$HOME/.config/tvatt-kiosk"
+WAIT_SECONDS="${TVATT_WAIT_SECONDS:-120}"
 
-# Wait (up to two minutes) for the server to answer.
-for _ in $(seq 1 120); do
-  curl -fs http://localhost/api/health >/dev/null 2>&1 && break
+# Wait for the server to answer.
+for _ in $(seq 1 "$WAIT_SECONDS"); do
+  curl -fs --max-time 2 "$BASE/api/health" >/dev/null 2>&1 && break
   sleep 1
 done
 
@@ -19,11 +22,22 @@ if [ -z "$BROWSER" ]; then
   exit 1
 fi
 
-while true; do
+# After a power cut Chromium thinks it crashed and offers to restore pages. Tell it all is well.
+clear_crash_flag() {
+  local prefs="$PROFILE/Default/Preferences"
+  [ -f "$prefs" ] || return 0
+  sed -i -e 's/"exit_type":"[A-Za-z]*"/"exit_type":"Normal"/' \
+         -e 's/"exited_cleanly":false/"exited_cleanly":true/' "$prefs"
+}
+
+launch() {
+  clear_crash_flag
   "$BROWSER" \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
+    --no-first-run \
+    --no-default-browser-check \
     --disable-session-crashed-bubble \
     --disable-features=Translate \
     --password-store=basic \
@@ -33,5 +47,17 @@ while true; do
     --ozone-platform-hint=auto \
     --user-data-dir="$PROFILE" \
     "$URL"
+}
+
+if [ -n "${TVATT_KIOSK_ONCE:-}" ]; then
+  launch
+  exit 0
+fi
+
+"$HERE/wake-on-done.sh" &
+trap 'kill $! 2>/dev/null' EXIT
+
+while true; do
+  launch
   sleep 3
 done

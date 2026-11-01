@@ -102,3 +102,14 @@ def test_check_selection_hot_conflict():
     a, b = item(1, temp=60), item(2, temp=40)
     assert check_selection([a, b], [a, b], PROGS).conflicts == ["60° och varmare tvättas för sig"]
     assert check_selection([a, b], [a, b], PROGS, split_hot=False).conflicts == []
+
+
+def test_program_allowed_by_care():
+    from app.grouping import program_allowed
+
+    assert program_allowed("normal", "wool") is True  # gentler is fine
+    assert program_allowed("wool", "normal") is False  # wool in cotton program felts
+    assert program_allowed("delicate", "synthetic") is False
+    assert program_allowed("synthetic", "synthetic") is True
+    assert program_allowed("hand", "wool") is True
+    assert program_allowed("synthetic", "normal") is False

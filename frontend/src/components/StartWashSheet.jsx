@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../lib/api.js";
-import { careLabel, colorInfo, spinLabel, tempLabel } from "../lib/labels.js";
+import { careLabel, colorInfo, programAllowed, spinLabel, tempLabel } from "../lib/labels.js";
 import { reload, toast, useStore } from "../lib/store.js";
 
 export default function StartWashSheet({ group, onClose }) {
@@ -34,6 +34,7 @@ export default function StartWashSheet({ group, onClose }) {
         <div className="program-list" role="radiogroup" aria-label="Tvättprogram">
           {programs.map((p) => {
             const tooHot = p.temp > group.temp;
+            const tooHarsh = !programAllowed(group.care, p.care);
             const otherCare = p.care !== group.care;
             return (
               <button
@@ -41,7 +42,7 @@ export default function StartWashSheet({ group, onClose }) {
                 className="program"
                 role="radio"
                 aria-checked={programId === p.id}
-                disabled={tooHot}
+                disabled={tooHot || tooHarsh}
                 onClick={() => setProgramId(p.id)}
               >
                 <span className="program-name">{p.name}</span>
@@ -49,7 +50,8 @@ export default function StartWashSheet({ group, onClose }) {
                   {p.duration_min} min
                   {p.id === group.program_id && <b> · föreslaget</b>}
                   {tooHot && ` · för varmt, plaggen tål ${tempLabel(group.temp)}`}
-                  {!tooHot && otherCare && ` · gjort för ${careLabel(p.care).toLowerCase()}`}
+                  {!tooHot && tooHarsh && ` · för hårt för ${careLabel(group.care).toLowerCase()}`}
+                  {!tooHot && !tooHarsh && otherCare && ` · gjort för ${careLabel(p.care).toLowerCase()}`}
                 </span>
               </button>
             );
