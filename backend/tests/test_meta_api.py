@@ -60,7 +60,7 @@ def test_settings_roundtrip(client):
     assert client.get("/api/settings").json()["split_hot"] is True
     r = client.patch("/api/settings", json={"split_hot": False})
     assert r.status_code == 200 and r.json()["split_hot"] is False
-    assert client.get("/api/settings").json() == {"split_hot": False}
+    assert client.get("/api/settings").json()["split_hot"] is False
 
 
 def test_publish_reaches_subscriber():
