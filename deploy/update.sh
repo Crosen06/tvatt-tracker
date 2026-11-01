@@ -5,7 +5,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT="${TVATT_UNIT_PATH:-/etc/systemd/system/tvatt.service}"
 PIP="${TVATT_PIP:-$REPO/.venv/bin/pip}"
 cd "$REPO"
-git pull --ff-only
+if [ -z "${TVATT_UPDATE_PULLED:-}" ]; then
+  git pull --ff-only
+  # Run the freshly pulled version of this script, so new update steps take effect right away.
+  TVATT_UPDATE_PULLED=1 exec "$REPO/deploy/update.sh" "$@"
+fi
 "$PIP" install -q -r backend/requirements.txt
 # Optional, better barcode reader. Scanning still works with OpenCV if it cannot be installed.
 "$PIP" install -q zxing-cpp || echo "zxing-cpp kunde inte installeras; streckkoder läses med OpenCV i stället."

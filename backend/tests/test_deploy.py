@@ -164,6 +164,7 @@ def test_update_installs_optional_zxing(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "zxing-cpp" in log.read_text()
     assert "zxing-cpp" in (DEPLOY / "install.sh").read_text()
+    assert log.read_text().count("git pull") == 1  # re-runs itself once after pulling, without pulling again
 
 
 def test_update_fetches_model_but_survives_failure(tmp_path):
