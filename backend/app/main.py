@@ -11,7 +11,7 @@ from starlette.staticfiles import StaticFiles
 from app.config import resolve_data_dir
 from app.db import connect, init_db
 from app.events import EventBus
-from app.routers import events, garments, people, programs, settings
+from app.routers import events, garments, people, programs, settings, suggestions, washes
 from app.web import http_error
 
 
@@ -33,6 +33,8 @@ def create_app(data_dir: Path | None = None) -> Starlette:
         *programs.routes,
         *settings.routes,
         *garments.routes,
+        *suggestions.routes,
+        *washes.routes,
         *events.routes,
         Mount("/photos", app=StaticFiles(directory=data_dir / "photos"), name="photos"),
     ]

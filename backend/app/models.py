@@ -65,3 +65,14 @@ class GarmentPatch(Strict):
 
 class BasketIn(Strict):
     in_basket: bool
+
+
+class CheckIn(Strict):
+    garment_ids: list[int]
+
+
+class WashIn(Strict):
+    program_id: int
+    garment_ids: list[int] = Field(min_length=1)
+    temp: Temp
+    spin: Spin
