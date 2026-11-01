@@ -25,3 +25,6 @@ export const careLabel = (v) => CARES.find((c) => c.value === v)?.label ?? v;
 export const DEFAULT_TAGS = { max_temp: 40, color: "dark", max_spin: 1200, care: "normal", tumble_dry: true };
 
 export const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// Swedish genitive: "Kikis", but "Magnus" stays "Magnus".
+export const genitive = (name = "") => (/[sxz]$/i.test(name) ? name : `${name}s`);

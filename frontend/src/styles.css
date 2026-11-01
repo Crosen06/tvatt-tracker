@@ -374,3 +374,5 @@ img { display: block; }
   .suggestion > .btn { grid-column: 2; }
   .done h1 { font-size: var(--fs-xl); }
 }
+
+.admin-form { display: grid; gap: 20px; }
