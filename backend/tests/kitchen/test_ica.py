@@ -47,6 +47,16 @@ def test_parse_search_links():
     assert all("/recept/kyckling/" not in x["url"] for x in r)
 
 
+def test_parse_search_merges_links_and_skips_placeholders():
+    r = ica.parse_search(page("ica_search_lazy.html"))
+    assert r == [
+        {"url": "https://www.ica.se/recept/pannkakor-710001/", "title": "Pannkakor", "image": "https://assets.example.se/p.jpg"},
+        {"url": "https://www.ica.se/recept/korv-stroganoff-710002/", "title": "Korv stroganoff", "image": "https://assets.example.se/k-320.jpg"},
+        # Nothing usable on the search page: the UI shows the recipe page's own title and picture.
+        {"url": "https://www.ica.se/recept/okand-710003/", "title": None, "image": None},
+    ]
+
+
 def test_parse_search_empty():
     assert ica.parse_search("<html></html>") == []
 

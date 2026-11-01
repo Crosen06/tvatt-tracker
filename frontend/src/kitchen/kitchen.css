@@ -140,6 +140,12 @@ button.recipe-card:active { transform: scale(.99); }
 .recipe-have.is-ok { color: var(--mint); }
 .recipe-card .btn { min-height: 52px; padding: 0 16px; flex-shrink: 0; }
 
+/* ICA search: one recipe per row, with a bigger picture. */
+.ica-list { display: grid; gap: 10px; }
+.ica-list .recipe-card { min-height: 112px; }
+.ica-list .recipe-thumb { width: 128px; height: 96px; }
+.ica-list .recipe-card-title { font-size: var(--fs-md); }
+
 .recipe-view { display: grid; gap: 8px; padding-bottom: 76px; }
 .recipe-head { display: flex; align-items: center; gap: 8px; }
 .recipe-head h1 { font-size: var(--fs-xl); line-height: 1.15; }
@@ -177,6 +183,7 @@ button.recipe-card:active { transform: scale(.99); }
 
 @media (max-width: 640px) {
   .recipe-grid { grid-template-columns: 1fr; }
+  .ica-list .recipe-thumb { width: 88px; height: 76px; }
   .recipe-cols { grid-template-columns: 1fr; }
   .recipe-meta { margin-left: 0; }
   .recipe-steps ol { font-size: var(--fs-md); }

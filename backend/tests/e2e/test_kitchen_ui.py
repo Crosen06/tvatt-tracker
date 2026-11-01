@@ -328,6 +328,25 @@ def test_ica_search_ui(kserver, browser):
     assert errors == []
 
 
+def test_ica_search_shows_title_and_picture_from_recipe_page(kserver, browser):
+    base = kserver["base"]
+    fake_page(kserver, "https://www.ica.se/recept/?q=gryta", "ica_search_bare.html")
+    fake_page(kserver, "https://www.ica.se/recept/kramig-kycklinggryta-722668/", "ica_recipe.html")
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/ica")
+    pg.get_by_label("Sök recept").click()
+    kb = pg.locator(".osk")
+    for ch in "gryta":
+        kb.get_by_role("button", name=ch, exact=True).click()
+    pg.get_by_role("button", name="Sök", exact=True).click()
+    card = pg.locator(".ica-card")
+    pw.expect(card).to_contain_text("Krämig kycklinggryta")
+    pw.expect(card.locator("img")).to_have_attribute("src", "https://assets.example.se/kycklinggryta.jpg")
+    shot(pg, "kiosk-ica-preview-title")
+    assert errors == []
+
+
 def test_ica_search_offline_message(kserver, browser):
     base = kserver["base"]
     errors = []

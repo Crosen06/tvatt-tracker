@@ -106,16 +106,23 @@ export default function IcaSearch() {
       {busy && <p className="hint">Söker…</p>}
       {results && results.length === 0 && <p className="hint">Hittade inga recept. Prova andra ord.</p>}
       {results && (
-        <div className="recipe-grid">
+        <div className="ica-list">
           {results.map((hit) => {
             const p = previews[hit.url];
+            // The recipe page itself (read for "har X av Y") has the real title and picture;
+            // the search page often only has a generic placeholder.
+            const title = (p && !p.error && p.title) || hit.title || (p ? "Recept" : "Hämtar…");
+            const image = (p && !p.error && p.image) || hit.image;
             return (
               <div key={hit.url} className="ica-card recipe-card">
-                <span className="recipe-thumb">{hit.image && <img src={hit.image} alt="" loading="lazy" referrerPolicy="no-referrer" />}</span>
+                <span className="recipe-thumb">
+                  {image && <img key={image} src={image} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+                </span>
                 <span className="recipe-card-main">
-                  <span className="recipe-card-title">{hit.title}</span>
+                  <span className="recipe-card-title">{title}</span>
                   <span className={`recipe-have${p && !p.error && p.have === p.total ? " is-ok" : ""}`}>
                     {!p ? "Kollar…" : p.error ? "Kunde inte läsa receptet" : `har ${p.have} av ${p.total}`}
+                    {p?.minutes ? ` · ${p.minutes} min` : ""}
                   </span>
                   {p?.missing?.length > 0 && <span className="hint">Saknar {p.missing.slice(0, 3).join(", ")}</span>}
                 </span>

@@ -19,11 +19,12 @@ BASE = "https://www.ica.se"
 MAX_RESULTS = 20
 RECIPE_PATH = re.compile(r"^/recept/[a-z0-9åäö-]+-\d+/?$")
 JSON_SCRIPT_RE = re.compile(r"<script[^>]*type\s*=\s*[\"']application/json[\"'][^>]*>(.*?)</script>", re.S | re.I)
-LINK_RE = re.compile(r"<a\b[^>]*href\s*=\s*[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", re.S | re.I)
+LINK_RE = re.compile(r"(<a\b[^>]*>)(.*?)</a>", re.S | re.I)
 IMG_RE = re.compile(r"<img\b[^>]*>", re.I)
-ATTR_RE = r"\b{}\s*=\s*[\"']([^\"']*)[\"']"
 TITLE_KEYS = ("title", "name", "heading", "headline")
 URL_KEYS = ("url", "absoluteUrl", "href", "link", "path", "slug")
+PLACEHOLDER_RE = re.compile(r"(placeholder|blank|spacer|transparent|fallback|default)[^/]*$|\.svg$|\.gif$", re.I)
+LAZY_SRC_ATTRS = ("data-src", "data-lazy-src", "data-original", "src")
 IMAGE_KEYS = ("image", "imageUrl", "imageURL", "img", "thumbnail", "picture")
 
 
@@ -52,7 +53,10 @@ def _image_value(v) -> str | None:
         v = v[0] if v else None
     if isinstance(v, dict):
         v = v.get("url") or v.get("src") or v.get("href")
-    return v if isinstance(v, str) and v.startswith("http") else None
+    if not isinstance(v, str) or not v.startswith("http"):
+        return None
+    # Lazy-loading pages put a generic placeholder in src until the real picture is scrolled in.
+    return None if PLACEHOLDER_RE.search(v.split("?")[0]) else v
 
 
 def _url_value(v) -> str | None:
@@ -61,14 +65,27 @@ def _url_value(v) -> str | None:
     return _absolute(v)
 
 
-def _add(out: list, seen: set, url, title, image) -> None:
-    if url and url not in seen and len(out) < MAX_RESULTS:
-        seen.add(url)
-        out.append({"url": url, "title": clean_text(title) or "Recept", "image": image})
+def _add(out: list, seen: dict, url, title, image) -> None:
+    """Add a hit, or fill in what an earlier hit for the same recipe lacked.
+
+    Search pages often link each recipe twice (a picture-only link and a text link), so the
+    first link alone may have neither a title nor an image. `title` is None when unknown; the
+    UI then shows the title from the recipe page itself.
+    """
+    if not url:
+        return
+    title = clean_text(title) or None
+    if url in seen:
+        hit = seen[url]
+        hit["title"] = hit["title"] or title
+        hit["image"] = hit["image"] or image
+    elif len(out) < MAX_RESULTS:
+        seen[url] = hit = {"url": url, "title": title, "image": image}
+        out.append(hit)
 
 
 def _from_itemlist(html: str) -> list[dict]:
-    out, seen = [], set()
+    out, seen = [], {}
     for block in LD_RE.findall(html):
         try:
             data = json.loads(block.strip())
@@ -103,7 +120,7 @@ def _walk(node, out, seen) -> None:
 
 
 def _from_json(html: str) -> list[dict]:
-    out, seen = [], set()
+    out, seen = [], {}
     for block in JSON_SCRIPT_RE.findall(html):
         try:
             _walk(json.loads(block.strip()), out, seen)
@@ -113,20 +130,44 @@ def _from_json(html: str) -> list[dict]:
 
 
 def _from_links(html: str) -> list[dict]:
-    out, seen = [], set()
-    for href, inner in LINK_RE.findall(html):
-        url = _absolute(href)
+    out, seen = [], {}
+    for tag, inner in LINK_RE.findall(html):
+        url = _absolute(_attr(tag, "href"))
         if not url:
             continue
         img = IMG_RE.search(inner)
         image = title = None
         if img:
-            src = re.search(ATTR_RE.format("src"), img.group())
-            alt = re.search(ATTR_RE.format("alt"), img.group())
-            image = _image_value(htmllib.unescape(src.group(1))) if src else None
-            title = alt.group(1) if alt else None
-        _add(out, seen, url, clean_text(inner) or title, image)
+            image = _img_tag_src(img.group())
+            title = _attr(img.group(), "alt")
+        _add(out, seen, url, clean_text(inner) or title or _link_label(tag, inner), image)
     return out
+
+
+def _attr(tag: str, name: str) -> str | None:
+    m = re.search(r"(?<![\w-])" + re.escape(name) + r"\s*=\s*[\"']([^\"']*)[\"']", tag, re.I)
+    return htmllib.unescape(m.group(1)) if m else None
+
+
+def _img_tag_src(tag: str) -> str | None:
+    """The real picture of an <img>, preferring lazy-load attributes and srcset over src."""
+    for name in ("data-srcset", "srcset"):
+        if (srcset := _attr(tag, name)) and (first := srcset.split(",")[0].split()):
+            if image := _image_value(first[0]):
+                return image
+    for name in LAZY_SRC_ATTRS:
+        if (src := _attr(tag, name)) and (image := _image_value(src.strip())):
+            return image
+    return None
+
+
+def _link_label(tag: str, inner: str) -> str | None:
+    """aria-label/title on the link or anything inside it (e.g. a heading-less card)."""
+    for part in (tag, inner):
+        for name in ("aria-label", "title"):
+            if value := _attr(part, name):
+                return value
+    return None
 
 
 def parse_search(html: str) -> list[dict]:
