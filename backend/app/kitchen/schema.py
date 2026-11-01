@@ -66,6 +66,16 @@ CREATE TABLE IF NOT EXISTS ingredient_map (
     name TEXT PRIMARY KEY,
     item_id INTEGER REFERENCES item(id)
 );
+CREATE TABLE IF NOT EXISTS item_image (
+    id INTEGER PRIMARY KEY,
+    item_id INTEGER NOT NULL REFERENCES item(id),
+    file TEXT NOT NULL,
+    model TEXT NOT NULL,
+    embedding BLOB NOT NULL,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS item_image_item ON item_image(item_id);
 """
 
 

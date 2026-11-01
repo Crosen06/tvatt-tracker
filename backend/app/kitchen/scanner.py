@@ -200,6 +200,7 @@ class Scanner:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._jpeg: bytes | None = None
+        self._frame = None
         self._seen: dict[str, float] = {}
         self._beat = 0.0
         self._seq = 0
@@ -241,6 +242,10 @@ class Scanner:
     def latest_jpeg(self) -> bytes | None:
         return self._jpeg
 
+    def latest_frame(self):
+        """The newest full-size picture (BGR), or None when the camera is not running."""
+        return self._frame
+
     def _hit(self, code: str) -> None:
         # Sliding window: a code held in view counts once; it must be out of view for `debounce`
         # seconds before it counts again.
@@ -268,6 +273,7 @@ class Scanner:
                     time.sleep(0.05)
                     continue
                 failed = 0
+                self._frame = frame
                 if n % PREVIEW_EVERY == 0:
                     ok, buf = cv2.imencode(".jpg", preview(frame, cv2), [cv2.IMWRITE_JPEG_QUALITY, 70])
                     if ok:
@@ -281,4 +287,5 @@ class Scanner:
         finally:
             source.release()
             self._jpeg = None
+            self._frame = None
             self._on_change()

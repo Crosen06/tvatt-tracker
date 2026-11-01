@@ -233,3 +233,12 @@ class BarcodeIn(Strict):
         if (self.item_id is None) == (self.new_item is None):
             raise ValueError("item_id or new_item")
         return self
+
+
+class VisionCaptureIn(Strict):
+    item_id: int
+
+
+class VisionConfirmIn(Strict):
+    token: str = Field(min_length=1, max_length=64)
+    item_id: int

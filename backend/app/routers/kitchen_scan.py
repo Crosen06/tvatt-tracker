@@ -27,6 +27,7 @@ async def scan_start(request):
         await run_in_threadpool(scanner.start)
     except CameraUnavailable as e:
         raise HTTPException(503, str(e))
+    await run_in_threadpool(request.app.state.vision.start_session, scanner)
     publish(request, "scan")
     return ok({"running": True})
 
@@ -141,6 +142,7 @@ async def link_barcode(request):
             (body.code, iid, body.product_name, clock.to_iso(clock.utcnow())),
         )
         item = repo.item_json(repo.fetch_item(conn, iid))
+    await run_in_threadpool(request.app.state.vision.on_linked, body.code, iid)
     publish(request, "items", "recipes")
     return ok(item)
 
