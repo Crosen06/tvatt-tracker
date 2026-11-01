@@ -124,9 +124,16 @@ class ItemPatch(Strict):
     match_words: list[str] | None = None
     status: Status | None = None
     count: int | None = Field(default=None, ge=0, le=999)
+    count_delta: int | None = Field(default=None, ge=-99, le=99)  # relative, so quick taps don't overwrite each other
 
     _n = field_validator("name")(lambda cls, v: _clean_name(v))
     _w = field_validator("match_words")(lambda cls, v: None if v is None else _clean_words(v))
+
+    @model_validator(mode="after")
+    def _count_or_delta(self):
+        if self.count is not None and self.count_delta is not None:
+            raise ValueError("count or count_delta")
+        return self
 
 
 class ShoppingIn(Strict):
@@ -147,6 +154,10 @@ class UnpackIn(Strict):
     entry_ids: list[int] = Field(max_length=500)
 
 
+MAX_SERVINGS = 200
+MAX_MINUTES = 7 * 24 * 60  # a week: sourdough and long marinades are real recipes
+
+
 def _opt_int(v):
     if isinstance(v, str):
         v = v.strip()
@@ -160,8 +171,8 @@ def _opt_int(v):
 
 class RecipeIn(Strict):
     title: str = Field(max_length=120)
-    servings: int | None = Field(default=None, ge=1, le=50)
-    minutes: int | None = Field(default=None, ge=1, le=1440)
+    servings: int | None = Field(default=None, ge=1, le=MAX_SERVINGS)
+    minutes: int | None = Field(default=None, ge=1, le=MAX_MINUTES)
     ingredients: str = Field(default="", max_length=8000)
     steps: str = Field(default="", max_length=20000)
 
@@ -171,8 +182,8 @@ class RecipeIn(Strict):
 
 class RecipePatch(Strict):
     title: str | None = Field(default=None, max_length=120)
-    servings: int | None = Field(default=None, ge=1, le=50)
-    minutes: int | None = Field(default=None, ge=1, le=1440)
+    servings: int | None = Field(default=None, ge=1, le=MAX_SERVINGS)
+    minutes: int | None = Field(default=None, ge=1, le=MAX_MINUTES)
     ingredients: str | None = Field(default=None, max_length=8000)
     steps: str | None = Field(default=None, max_length=20000)
 

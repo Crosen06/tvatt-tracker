@@ -154,3 +154,53 @@ def test_folder_source_cycles_images(tmp_path):
     assert src.read().shape == (480, 640, 3)  # empty folder → blank frame
     cv2.imwrite(str(tmp_path / "a.png"), ean13_frame(CODE))
     assert decode(src.read()) == [CODE]
+
+
+class TickingSource(FakeSource):
+    """Advances the fake clock on every read, like a real camera delivering frames over time."""
+
+    def __init__(self, frames_fn, clock, step=0.1):
+        super().__init__([], delay=0.002)
+        self.frames_fn, self.clock, self.step = frames_fn, clock, step
+
+    def read(self):
+        time.sleep(self.delay)
+        self.clock.t += self.step
+        self.i += 1
+        return self.frames_fn(self.clock.t)
+
+
+def test_code_held_in_view_fires_once(made):
+    clock = FakeClock()
+    start = clock.t
+    code_frame, blank = ean13_frame(CODE), blank_frame()
+    # In view for 6 s, away for 4 s, then back.
+    src = TickingSource(lambda t: code_frame if (t - start < 6 or t - start > 10) else blank, clock)
+    hits = []
+    s = Scanner(lambda: src, hits.append, clock=clock)
+    made.append(s)
+    s.start()
+    assert wait_for(lambda: clock.t - start > 5.5)
+    assert hits == [CODE]
+    assert wait_for(lambda: len(hits) == 2, timeout=8)
+
+
+def test_thread_exit_notifies(made):
+    changes = []
+    s = Scanner(lambda: FakeSource([], delay=0), lambda c: None, on_change=lambda: changes.append(1), clock=FakeClock())
+    made.append(s)
+    s.start()
+    assert wait_for(lambda: not s.running)
+    assert wait_for(lambda: len(changes) >= 1)
+
+
+def test_start_right_after_stop_restarts(made):
+    s, _, _ = make(made, FakeSource([blank_frame()], delay=0.3))
+    s.start()
+    stopper = threading.Thread(target=s.stop)
+    stopper.start()
+    time.sleep(0.02)
+    s.start()  # arrives while the old thread is still finishing its read
+    stopper.join()
+    time.sleep(0.5)
+    assert s.running

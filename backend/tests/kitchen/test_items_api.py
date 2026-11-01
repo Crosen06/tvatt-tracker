@@ -155,3 +155,14 @@ def test_counted_item_marked_in_stock_gets_count_one(client):
     assert r["item"]["count"] == 1
     r = client.patch(f"/api/items/{eid}", json={"status": "out"}).json()
     assert r["item"]["count"] == 0
+
+
+def test_count_delta_is_relative(client):
+    eid = item_by_name(client, "Ägg")["id"]
+    for _ in range(3):
+        client.patch(f"/api/items/{eid}", json={"count_delta": 1})
+    assert item_by_name(client, "Ägg")["count"] == 3
+    assert item_by_name(client, "Ägg")["status"] == "in_stock"
+    r = client.patch(f"/api/items/{eid}", json={"count_delta": -5}).json()
+    assert r["item"]["count"] == 0 and r["item"]["status"] == "out" and r["list_entry_id"] is not None
+    assert client.patch(f"/api/items/{eid}", json={"count_delta": 1, "count": 4}).status_code == 422

@@ -27,6 +27,16 @@ async def scan_start(request):
         await run_in_threadpool(scanner.start)
     except CameraUnavailable as e:
         raise HTTPException(503, str(e))
+    publish(request, "scan")
+    return ok({"running": True})
+
+
+async def scan_heartbeat(request):
+    """Keeps a running camera alive. Never starts it: a dead camera must show up as an error."""
+    scanner = request.app.state.scanner
+    if not scanner.running:
+        raise HTTPException(409, scanner.error or "Kameran är inte igång.")
+    scanner.heartbeat()
     return ok({"running": True})
 
 
@@ -146,6 +156,7 @@ async def delete_barcode(request):
 
 routes = [
     Route("/api/scan/start", scan_start, methods=["POST"]),
+    Route("/api/scan/heartbeat", scan_heartbeat, methods=["POST"]),
     Route("/api/scan/stop", scan_stop, methods=["POST"]),
     Route("/api/scan/last", scan_last, methods=["GET"]),
     Route("/api/scan/stream", scan_stream, methods=["GET"]),

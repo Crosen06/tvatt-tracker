@@ -33,11 +33,11 @@ export default function ItemSheet({ itemId, onClose }) {
       </div>
       {item.counted && (
         <div className="counter" aria-live="polite">
-          <button className="btn" aria-label="Minska antal" disabled={!item.count} onClick={() => updateItem(item, { count: Math.max(0, (item.count || 0) - 1) })}>
+          <button className="btn" aria-label="Minska antal" disabled={!item.count} onClick={() => updateItem(item, { count_delta: -1 })}>
             −
           </button>
           <span className="counter-value">{item.count || 0} st</span>
-          <button className="btn" aria-label="Öka antal" onClick={() => updateItem(item, { count: (item.count || 0) + 1 })}>
+          <button className="btn" aria-label="Öka antal" onClick={() => updateItem(item, { count_delta: 1 })}>
             +
           </button>
         </div>

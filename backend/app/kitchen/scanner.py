@@ -81,7 +81,10 @@ class CvSource:
 
 
 class FolderSource:
-    """Shows the newest image in a folder, re-checking the folder on every read (e2e tests)."""
+    """Shows the newest image in a folder, re-checking the folder on every read (e2e tests).
+
+    A file named `unplugged` in the folder makes reads fail, like a camera pulled out.
+    """
 
     def __init__(self, folder, delay: float = 1 / 15):
         self.folder, self.delay = Path(folder), delay
@@ -91,6 +94,8 @@ class FolderSource:
 
         cv2 = _load_cv2()
         time.sleep(self.delay)
+        if (self.folder / "unplugged").exists():
+            return None
         files = sorted(self.folder.glob("*.png"), key=lambda p: p.stat().st_mtime)
         if files:
             img = cv2.imread(str(files[-1]))
@@ -111,8 +116,10 @@ def default_source_factory():
 
 class Scanner:
     def __init__(self, source_factory: Callable, on_scan: Callable[[str], None], *, idle_seconds: float = 120,
-                 debounce: float = 3.0, clock: Callable[[], float] = time.monotonic):
+                 debounce: float = 3.0, clock: Callable[[], float] = time.monotonic,
+                 on_change: Callable[[], None] | None = None):
         self._factory, self._on_scan = source_factory, on_scan
+        self._on_change = on_change or (lambda: None)
         self.idle_seconds, self.debounce, self._clock = idle_seconds, debounce, clock
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -132,8 +139,10 @@ class Scanner:
     def start(self) -> None:
         with self._lock:
             self._beat = self._clock()
-            if self.running:
+            if self.running and not self._stop.is_set():
                 return
+            if self._thread is not None:
+                self._thread.join(timeout=2)  # a stop is still finishing; wait, then start afresh
             try:
                 cv2 = _load_cv2()
             except ImportError:
@@ -158,10 +167,13 @@ class Scanner:
         return self._jpeg
 
     def _hit(self, code: str) -> None:
+        # Sliding window: a code held in view counts once; it must be out of view for `debounce`
+        # seconds before it counts again.
         now = self._clock()
-        if now - self._seen.get(code, -1e9) < self.debounce:
-            return
+        prev = self._seen.get(code)
         self._seen[code] = now
+        if prev is not None and now - prev < self.debounce:
+            return
         self._seq += 1
         self.last = {"seq": self._seq, "code": code, "at": time.time()}
         self._on_scan(code)
@@ -194,3 +206,4 @@ class Scanner:
         finally:
             source.release()
             self._jpeg = None
+            self._on_change()

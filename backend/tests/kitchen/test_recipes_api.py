@@ -204,3 +204,14 @@ def test_new_item_rematches_unknown(client):
     assert client.get(f"/api/recipes/{r['id']}").json()["ingredients"][0]["state"] == "unknown"
     client.post("/api/items", json={"name": "Halloumi", "category": "Kyl", "status": "in_stock"})
     assert client.get(f"/api/recipes/{r['id']}").json()["ingredients"][0]["state"] == "have"
+
+
+def test_imported_long_recipe_can_be_edited(client, monkeypatch):
+    html = (FIX / "graph_recipe.html").read_text().replace('"PT1H30M"', '"PT25H"').replace('["4","4 portioner"]', '["120"]')
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: html.encode() if not url.endswith(".jpg") else (_ for _ in ()).throw(fetch.FetchError("x")))
+    rid = client.post("/api/recipes/import", json={"url": "https://mat.example.se/surdeg"}).json()["id"]
+    d = client.get(f"/api/recipes/{rid}").json()
+    assert d["minutes"] == 1500
+    r = client.patch(f"/api/recipes/{rid}", json={"title": "Surdegsbröd", "servings": d["servings"], "minutes": d["minutes"]})
+    assert r.status_code == 200, r.text
+    assert client.patch(f"/api/recipes/{rid}", json={"minutes": 20000}).json()["detail"] == "Ogiltigt värde för minuter."

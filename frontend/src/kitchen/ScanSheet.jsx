@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
-import { closeScan, getState, toast, useStore } from "../lib/store.js";
+import { closeScan, getState, reload, toast, useStore } from "../lib/store.js";
 import { beep } from "./beep.js";
 import KioskInput from "./KioskInput.jsx";
 import ScanResult from "./ScanResult.jsx";
@@ -28,6 +28,14 @@ export default function ScanSheet() {
   const [typing, setTyping] = useState(false);
   const firstSeq = useRef(getState().scan.seq);
   const ready = useRef(false);
+  const sawRunning = useRef(false);
+
+  function lost(message) {
+    ready.current = false;
+    sawRunning.current = false;
+    setState("error");
+    setError(message || "Kameran slutade svara.");
+  }
 
   async function start() {
     setState("starting");
@@ -38,15 +46,16 @@ export default function ScanSheet() {
       setState("ready");
       setStreamKey(Date.now());
     } catch (e) {
-      ready.current = false;
-      setState("error");
-      setError(e.message);
+      lost(e.message);
     }
   }
 
   useEffect(() => {
     start();
-    const t = setInterval(() => ready.current && api.post("/api/scan/start").catch(() => {}), HEARTBEAT_MS);
+    // The heartbeat only keeps a running camera alive; if it has died the sheet shows the error.
+    const t = setInterval(() => {
+      if (ready.current) api.post("/api/scan/heartbeat").catch((e) => lost(e.message));
+    }, HEARTBEAT_MS);
     return () => {
       clearInterval(t);
       api.post("/api/scan/stop").catch(() => {});
@@ -68,18 +77,22 @@ export default function ScanSheet() {
   useEffect(() => {
     if (scan.seq > firstSeq.current && scan.code) {
       firstSeq.current = scan.seq;
+      if (looking || result?.code === scan.code) return; // same item still in front of the camera
       beep();
       lookup(scan.code);
     }
   }, [scan.seq]);
 
   useEffect(() => {
-    if (scan.error && state === "ready" && !scan.running) {
-      ready.current = false;
-      setState("error");
-      setError(scan.error);
-    }
-  }, [scan.error, scan.running]);
+    if (scan.running && ready.current) sawRunning.current = true;
+    if (!scan.running && sawRunning.current && ready.current) lost(scan.error);
+  }, [scan.running, scan.error]);
+
+  function streamFailed() {
+    // The MJPEG stream ended: check whether the camera is still running.
+    if (ready.current) api.get("/api/scan/last").then((s) => !s.running && lost(s.error), () => {});
+    reload("scan");
+  }
 
   return (
     <div className="scan" role="dialog" aria-modal="true" aria-label="Skanna">
@@ -90,7 +103,7 @@ export default function ScanSheet() {
       </header>
       <div className="scan-body">
         <div className="scan-preview">
-          {state === "ready" && <img key={streamKey} src={`/api/scan/stream?k=${streamKey}`} alt="Kamerabild" />}
+          {state === "ready" && <img key={streamKey} src={`/api/scan/stream?k=${streamKey}`} alt="Kamerabild" onError={streamFailed} />}
           {state === "ready" && <span className="scan-aim" aria-hidden="true" />}
           {state === "starting" && <p className="hint">Startar kameran…</p>}
           {state === "error" && (

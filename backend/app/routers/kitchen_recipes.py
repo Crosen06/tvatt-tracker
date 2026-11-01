@@ -10,7 +10,7 @@ from app.db import open_db
 from app.kitchen import fetch, ica, recipe_import, repo
 from app.kitchen.ingredients import match, parse_line
 from app.kitchen.suggest import evaluate
-from app.models import CookedIn, ImportIn, LinkIn, RecipeIn, RecipePatch
+from app.models import MAX_MINUTES, MAX_SERVINGS, CookedIn, ImportIn, LinkIn, RecipeIn, RecipePatch
 from app.photos import PhotoTooLarge, UnsupportedPhoto, delete_photo, save_photo
 from app.routers.garments import MAX_UPLOAD, _check_length, _read_photo
 from app.web import no_content, ok, parse, path_id, publish, validate
@@ -170,7 +170,10 @@ async def import_recipe(request):
             delete_photo(photo, request.app.state.data_dir / "photos")
             return ok({"id": existing["id"], "existing": True})
         rid = repo.create_recipe(
-            conn, title=imported.title, servings=imported.servings, minutes=imported.minutes,
+            conn, title=imported.title,
+            # Values a site gets wrong must not make the recipe impossible to edit later.
+            servings=imported.servings if imported.servings and imported.servings <= MAX_SERVINGS else None,
+            minutes=imported.minutes if imported.minutes and imported.minutes <= MAX_MINUTES else None,
             ingredients=imported.ingredients, steps=imported.steps, source=source, source_url=url, photo=photo,
         )
     publish(request, "recipes")

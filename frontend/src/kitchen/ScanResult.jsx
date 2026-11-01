@@ -11,7 +11,7 @@ const fresh = (item) => getState().items.find((i) => i.id === item.id) || item;
 function KnownItem({ item, onDone }) {
   async function intoPantry() {
     const it = fresh(item);
-    const ok = await updateItem(it, it.counted ? { count: (it.count || 0) + 1 } : { status: "in_stock" });
+    const ok = await updateItem(it, it.counted ? { count_delta: 1 } : { status: "in_stock" });
     if (!ok) return;
     const entry = entryForItem(it.id);
     if (entry) await removeFromList(entry.id);

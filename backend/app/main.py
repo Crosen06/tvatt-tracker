@@ -73,7 +73,11 @@ def create_app(data_dir: Path | None = None, camera_factory=None) -> Starlette:
 
     app = Starlette(routes=routes, exception_handlers={HTTPException: http_error}, lifespan=lifespan)
     app.state.bus = EventBus()
-    app.state.scanner = Scanner(camera_factory or default_source_factory, lambda code: app.state.bus.publish("scan"))
+    app.state.scanner = Scanner(
+        camera_factory or default_source_factory,
+        lambda code: app.state.bus.publish("scan"),
+        on_change=lambda: app.state.bus.publish("scan"),
+    )
     app.state.data_dir = data_dir
     app.state.db_path = db_path
     return app

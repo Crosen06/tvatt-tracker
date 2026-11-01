@@ -66,6 +66,10 @@ async def patch_item(request):
             raise HTTPException(409, MSG_TAKEN)
         repo.update_item(conn, iid, {k: v for k, v in changes.items() if v is not None})
         entry = None
+        if changes.get("count_delta") is not None:
+            current = row["count"] or 0
+            changes["count"] = max(0, min(999, current + changes.pop("count_delta")))
+        changes.pop("count_delta", None)
         if changes.get("status") is not None or "count" in changes:
             if "count" in changes and changes["count"] is None:
                 conn.execute("UPDATE item SET count=NULL WHERE id=?", (iid,))

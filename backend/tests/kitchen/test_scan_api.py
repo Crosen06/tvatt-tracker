@@ -119,3 +119,25 @@ def test_barcode_invalid_422(client):
     assert client.get("/api/barcodes/abc").status_code in (404, 422)
     assert client.post("/api/barcodes", json={"code": "123", "item_id": 1}).status_code == 422
     assert client.post("/api/barcodes", json={"code": CODE}).status_code == 422
+
+
+def test_heartbeat_never_restarts(tmp_path):
+    with make_client(tmp_path / "d", [blank_frame()]) as c:
+        r = c.post("/api/scan/heartbeat")
+        assert r.status_code == 409 and r.json()["detail"] == "Kameran är inte igång."
+        c.post("/api/scan/start")
+        assert c.post("/api/scan/heartbeat").json() == {"running": True}
+        c.post("/api/scan/stop")
+        assert c.post("/api/scan/heartbeat").status_code == 409
+        assert c.app.state.scanner.running is False
+
+
+def test_scan_start_and_exit_publish(tmp_path):
+    with make_client(tmp_path / "d", [blank_frame()]) as c:
+        seen = []
+        c.app.state.bus.publish = seen.append
+        c.post("/api/scan/start")
+        assert "scan" in seen
+        seen.clear()
+        c.post("/api/scan/stop")
+        assert wait_for(lambda: "scan" in seen)

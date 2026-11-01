@@ -466,3 +466,35 @@ def test_no_scan_button_on_phone(server, browser):
     pw.expect(pg.get_by_role("button", name="Skafferi")).to_be_visible()
     pw.expect(pg.get_by_role("button", name="Skanna")).to_have_count(0)
     assert errors == []
+
+
+def test_camera_lost_shows_error_and_recovers(kserver, browser):
+    base = kserver["base"]
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/skafferi")
+    pg.get_by_role("button", name="Skanna").click()
+    pw.expect(pg.get_by_text("Håll streckkoden mot kameran")).to_be_visible()
+    (kserver["cam"] / "unplugged").write_text("")
+    pw.expect(pg.get_by_text("Kameran slutade svara.")).to_be_visible(timeout=15000)
+    (kserver["cam"] / "unplugged").unlink()
+    pg.get_by_role("button", name="Försök igen").click()
+    pw.expect(pg.get_by_text("Håll streckkoden mot kameran")).to_be_visible()
+    show_code(kserver, CODE_A)
+    pw.expect(pg.locator(".scan-result")).to_be_visible(timeout=10000)
+    assert errors == []
+
+
+def test_quick_plus_taps_all_count(server, browser):
+    base = server["base"]
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/skafferi")
+    pg.get_by_role("button", name="Krossade tomater, Slut").click()
+    plus = pg.get_by_role("button", name="Öka antal")
+    for _ in range(3):
+        plus.click(delay=0)
+    pw.expect(pg.locator(".counter-value")).to_have_text("3 st")
+    time.sleep(0.3)
+    assert item(base, "Krossade tomater")["count"] == 3
+    assert errors == []

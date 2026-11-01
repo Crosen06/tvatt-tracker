@@ -19,7 +19,8 @@ async def parse(request: Request, model: type[M]) -> M:
     return validate(model, data)
 
 
-FIELD_LABELS = {"name": "namn", "category": "kategori", "count": "antal", "text": "text", "title": "titel", "url": "länk"}
+FIELD_LABELS = {"name": "namn", "category": "kategori", "count": "antal", "text": "text", "title": "titel", "url": "länk",
+                "servings": "portioner", "minutes": "minuter", "count_delta": "antal"}
 
 
 def validate(model: type[M], data) -> M:
