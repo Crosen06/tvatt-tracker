@@ -145,3 +145,60 @@ class ShoppingIn(Strict):
 
 class UnpackIn(Strict):
     entry_ids: list[int] = Field(max_length=500)
+
+
+def _opt_int(v):
+    if isinstance(v, str):
+        v = v.strip()
+        if v == "":
+            return None
+        if not v.isdigit():
+            raise ValueError("not a number")
+        return int(v)
+    return v
+
+
+class RecipeIn(Strict):
+    title: str = Field(max_length=120)
+    servings: int | None = Field(default=None, ge=1, le=50)
+    minutes: int | None = Field(default=None, ge=1, le=1440)
+    ingredients: str = Field(default="", max_length=8000)
+    steps: str = Field(default="", max_length=20000)
+
+    _t = field_validator("title")(lambda cls, v: _clean_name(v))
+    _n = field_validator("servings", "minutes", mode="before")(lambda cls, v: _opt_int(v))
+
+
+class RecipePatch(Strict):
+    title: str | None = Field(default=None, max_length=120)
+    servings: int | None = Field(default=None, ge=1, le=50)
+    minutes: int | None = Field(default=None, ge=1, le=1440)
+    ingredients: str | None = Field(default=None, max_length=8000)
+    steps: str | None = Field(default=None, max_length=20000)
+
+    _t = field_validator("title")(lambda cls, v: _clean_name(v))
+    _n = field_validator("servings", "minutes", mode="before")(lambda cls, v: _opt_int(v))
+
+
+class LinkIn(Strict):
+    item_id: int | None = None
+    ignored: bool | None = None
+
+    @model_validator(mode="after")
+    def _one_of(self):
+        if (self.item_id is None) == (self.ignored is None):
+            raise ValueError("item_id or ignored")
+        return self
+
+
+class CookedUpdate(Strict):
+    item_id: int
+    status: Status
+
+
+class CookedIn(Strict):
+    updates: list[CookedUpdate] = Field(default_factory=list, max_length=80)
+
+
+class ImportIn(Strict):
+    url: str = Field(min_length=8, max_length=2000, pattern=r"^https?://\S+$")

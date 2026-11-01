@@ -207,3 +207,160 @@ def rematch_unknown(conn: sqlite3.Connection) -> None:
     ).fetchall()
     if rows:
         _link_rows(conn, rows)
+
+
+# ---------- recipes ----------
+
+def _steps(text: str) -> list[str]:
+    return [" ".join(s.split()) for s in (text or "").splitlines() if s.strip()]
+
+
+def set_ingredients(conn, recipe_id: int, lines: list[str]) -> None:
+    from app.kitchen.ingredients import parse_line
+
+    conn.execute("DELETE FROM recipe_ingredient WHERE recipe_id=?", (recipe_id,))
+    sort = 0
+    for line in lines:
+        p = parse_line(line)
+        if p is None:
+            continue
+        conn.execute(
+            "INSERT INTO recipe_ingredient (recipe_id, sort, text, name, optional, ignored) VALUES (?, ?, ?, ?, ?, ?)",
+            (recipe_id, sort, p.text, p.name, int(p.optional), int(not p.name)),
+        )
+        sort += 1
+    rows = conn.execute(
+        "SELECT id, name FROM recipe_ingredient WHERE recipe_id=? AND name != ''", (recipe_id,)
+    ).fetchall()
+    _link_rows(conn, rows)
+
+
+def create_recipe(conn, *, title, servings=None, minutes=None, ingredients=(), steps=(), source="own",
+                  source_url=None, photo=None) -> int:
+    cur = conn.execute(
+        "INSERT INTO recipe (title, servings, minutes, source, source_url, photo, instructions, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (title, servings, minutes, source, source_url, photo, "\n".join(steps), _now()),
+    )
+    set_ingredients(conn, cur.lastrowid, list(ingredients))
+    return cur.lastrowid
+
+
+def fetch_recipe(conn, recipe_id: int):
+    row = conn.execute("SELECT * FROM recipe WHERE id=? AND archived=0", (recipe_id,)).fetchone()
+    if not row:
+        raise NotFound("Receptet finns inte.")
+    return row
+
+
+def recipe_by_url(conn, url: str):
+    return conn.execute("SELECT id FROM recipe WHERE source_url=? AND archived=0", (url,)).fetchone()
+
+
+def items_by_id(conn) -> dict[int, dict]:
+    rows = conn.execute("SELECT id, name, status, staple FROM item WHERE archived=0")
+    return {r["id"]: {"id": r["id"], "name": r["name"], "status": r["status"], "staple": bool(r["staple"])} for r in rows}
+
+
+def ingredient_rows(conn, recipe_id: int) -> list[dict]:
+    rows = conn.execute("SELECT * FROM recipe_ingredient WHERE recipe_id=? ORDER BY sort, id", (recipe_id,))
+    return [
+        {"id": r["id"], "text": r["text"], "name": r["name"], "item_id": r["item_id"],
+         "optional": bool(r["optional"]), "ignored": bool(r["ignored"])}
+        for r in rows
+    ]
+
+
+def recipe_json(r, ev: dict) -> dict:
+    photo = r["photo"]
+    return {
+        "id": r["id"], "title": r["title"], "servings": r["servings"], "minutes": r["minutes"],
+        "source": r["source"], "source_url": r["source_url"],
+        "photo_url": f"/photos/{photo}" if photo else None,
+        "thumb_url": f"/photos/thumb/{photo}" if photo else None,
+        "cooked_count": r["cooked_count"], "last_cooked": r["last_cooked"], "eval": ev,
+    }
+
+
+def list_recipes(conn) -> list[dict]:
+    from app.kitchen.suggest import evaluate, sort_key
+
+    items = items_by_id(conn)
+    out = []
+    for r in conn.execute("SELECT * FROM recipe WHERE archived=0"):
+        ev = evaluate(ingredient_rows(conn, r["id"]), items)
+        out.append((sort_key(dict(r), ev), recipe_json(r, ev)))
+    return [x for _, x in sorted(out, key=lambda t: t[0])]
+
+
+def recipe_detail(conn, recipe_id: int) -> dict:
+    from app.kitchen.suggest import evaluate, line_state
+
+    r = fetch_recipe(conn, recipe_id)
+    items = items_by_id(conn)
+    ings = ingredient_rows(conn, recipe_id)
+    out = recipe_json(r, evaluate(ings, items))
+    out["ingredients"] = [
+        {**i, "state": line_state(i, items), "item_name": items[i["item_id"]]["name"] if i["item_id"] in items else None}
+        for i in ings
+    ]
+    out["steps"] = _steps(r["instructions"])
+    return out
+
+
+def link_ingredient(conn, recipe_id: int, ing_id: int, *, item_id=None, ignored=None) -> None:
+    row = conn.execute(
+        "SELECT * FROM recipe_ingredient WHERE id=? AND recipe_id=?", (ing_id, recipe_id)
+    ).fetchone()
+    if not row:
+        raise NotFound("Ingrediensen finns inte.")
+    name = row["name"]
+    if item_id is not None:
+        fetch_item(conn, item_id)
+        conn.execute("UPDATE recipe_ingredient SET item_id=?, ignored=0 WHERE id=?", (item_id, ing_id))
+        if name:
+            conn.execute("INSERT OR REPLACE INTO ingredient_map (name, item_id) VALUES (?, ?)", (name, item_id))
+            # Other recipes' lines with the same name follow the user's choice.
+            conn.execute(
+                "UPDATE recipe_ingredient SET item_id=?, ignored=0 WHERE name=? AND (item_id IS NULL OR item_id != ?)",
+                (item_id, name, item_id),
+            )
+    elif ignored:
+        conn.execute("UPDATE recipe_ingredient SET item_id=NULL, ignored=1 WHERE id=?", (ing_id,))
+        if name:
+            conn.execute("INSERT OR REPLACE INTO ingredient_map (name, item_id) VALUES (?, NULL)", (name,))
+    else:
+        conn.execute("UPDATE recipe_ingredient SET ignored=0 WHERE id=?", (ing_id,))
+        if name:
+            conn.execute("DELETE FROM ingredient_map WHERE name=?", (name,))
+            conn.execute("UPDATE recipe_ingredient SET ignored=0 WHERE name=? AND item_id IS NULL", (name,))
+    rematch_unknown(conn)
+
+
+def missing_to_list(conn, recipe_id: int) -> int:
+    from app.kitchen.suggest import evaluate
+
+    r = fetch_recipe(conn, recipe_id)
+    ev = evaluate(ingredient_rows(conn, recipe_id), items_by_id(conn))
+    note = f"till {r['title']}"[:60]
+    added = 0
+    for m in ev["missing"]:
+        if add_to_list(conn, item_id=m["item_id"], note=note) is not None:
+            added += 1
+    texts = {e["text"].lower() for e in list_entries(conn)}
+    for u in ev["unknown"]:
+        text = u["name"][:1].upper() + u["name"][1:60]
+        if text.lower() not in texts:
+            add_to_list(conn, text=text, note=note)
+            texts.add(text.lower())
+            added += 1
+    return added
+
+
+def mark_cooked(conn, recipe_id: int, updates: list[tuple[int, str]]) -> None:
+    fetch_recipe(conn, recipe_id)
+    for item_id, status in updates:
+        set_status(conn, item_id, status)
+    conn.execute(
+        "UPDATE recipe SET cooked_count = cooked_count + 1, last_cooked=? WHERE id=?", (_now(), recipe_id)
+    )
