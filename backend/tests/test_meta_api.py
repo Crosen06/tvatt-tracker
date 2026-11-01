@@ -57,9 +57,9 @@ def test_unknown_id_404(client):
 
 
 def test_settings_roundtrip(client):
-    assert client.get("/api/settings").json() == {"split_hot": True}
+    assert client.get("/api/settings").json()["split_hot"] is True
     r = client.patch("/api/settings", json={"split_hot": False})
-    assert r.status_code == 200 and r.json() == {"split_hot": False}
+    assert r.status_code == 200 and r.json()["split_hot"] is False
     assert client.get("/api/settings").json() == {"split_hot": False}
 
 
@@ -118,3 +118,11 @@ def test_sse_disconnect_is_clean(app):
 
     asyncio.run(run())
     assert sent[0]["status"] == 200
+
+
+def test_settings_auto_list_roundtrip(client):
+    assert client.get("/api/settings").json()["auto_list"] is True
+    r = client.patch("/api/settings", json={"auto_list": False})
+    assert r.status_code == 200 and r.json()["auto_list"] is False
+    assert client.get("/api/settings").json()["auto_list"] is False
+    assert client.get("/api/settings").json()["split_hot"] is True

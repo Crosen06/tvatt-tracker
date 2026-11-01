@@ -4,6 +4,9 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from app import clock
+from app.kitchen.schema import init_kitchen
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS person (
     id INTEGER PRIMARY KEY,
@@ -96,6 +99,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
     for key, value in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO setting (key, value) VALUES (?, ?)", (key, value))
+    init_kitchen(conn, clock.to_iso(clock.utcnow()))
     conn.commit()
 
 

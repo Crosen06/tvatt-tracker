@@ -7,7 +7,10 @@ from app.web import ok, parse, publish
 
 def read_settings(conn) -> dict:
     values = {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM setting")}
-    return {"split_hot": values.get("split_hot", "1") == "1"}
+    return {
+        "split_hot": values.get("split_hot", "1") == "1",
+        "auto_list": values.get("auto_list", "1") == "1",
+    }
 
 
 async def get_settings(request):
@@ -18,11 +21,10 @@ async def get_settings(request):
 async def patch_settings(request):
     body = await parse(request, SettingsPatch)
     with open_db(request) as conn:
-        if body.split_hot is not None:
+        for key, value in body.model_dump(exclude_none=True).items():
             conn.execute(
-                "INSERT INTO setting (key, value) VALUES ('split_hot', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                ("1" if body.split_hot else "0",),
+                "INSERT INTO setting (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, "1" if value else "0"),
             )
         result = read_settings(conn)
     publish(request, "settings")

@@ -41,6 +41,7 @@ class ProgramPatch(Strict):
 
 class SettingsPatch(Strict):
     split_hot: bool | None = None
+    auto_list: bool | None = None
 
 
 class GarmentIn(Strict):
