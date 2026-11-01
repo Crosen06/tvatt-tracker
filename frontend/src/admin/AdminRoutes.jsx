@@ -9,6 +9,7 @@ import ItemList from "../kitchen/admin/ItemList.jsx";
 import RecipeEdit from "../kitchen/admin/RecipeEdit.jsx";
 import RecipeImport from "../kitchen/admin/RecipeImport.jsx";
 import RecipeList from "../kitchen/admin/RecipeList.jsx";
+import { VisionItemImages, VisionItemList } from "../kitchen/admin/VisionImages.jsx";
 
 export default function AdminRoutes({ route }) {
   switch (route.path) {
@@ -28,10 +29,13 @@ export default function AdminRoutes({ route }) {
       return <RecipeEdit key="new" />;
     case "/admin/recept/import":
       return <RecipeImport />;
+    case "/admin/bilder":
+      return <VisionItemList />;
     default:
       if (route.path.startsWith("/admin/plagg/")) return <GarmentEdit id={route.params.id} />;
       if (route.path.startsWith("/admin/varor/")) return <ItemEdit id={route.params.id} />;
       if (route.path.startsWith("/admin/recept/")) return <RecipeEdit key={route.params.id} id={route.params.id} />;
+      if (route.path.startsWith("/admin/bilder/") && route.params.id) return <VisionItemImages key={route.params.id} id={route.params.id} />;
       return <AdminHome />;
   }
 }

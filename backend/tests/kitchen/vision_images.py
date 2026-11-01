@@ -14,7 +14,7 @@ def scene(item: str | None = None, size=(480, 640), seed: int = 0, shift: int = 
     img = np.full((h, w, 3), (150, 150, 145), dtype=np.uint8)
     img[: h // 3] = (170, 168, 160)
     if item is not None:
-        ph, pw = int(h * 0.55), int(h * 0.4)
+        ph, pw = int(h * 0.7), int(h * 0.6)
         y, x = (h - ph) // 2, (w - pw) // 2 + shift
         if item == "milk":
             img[y:y + ph, x:x + pw] = (245, 245, 245)

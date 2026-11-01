@@ -211,6 +211,19 @@ button.recipe-card:active { transform: scale(.99); }
 .scan-result h2 { font-size: var(--fs-lg); line-height: 1.25; }
 .scan-actions { display: grid; gap: 8px; }
 .scan-code { font-variant-numeric: tabular-nums; }
+.scan-note { color: var(--mint); font-size: var(--fs-sm); font-weight: 500; }
+.vision-others { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.vision-or { color: var(--muted); }
+.vision-help { color: var(--muted); font-size: var(--fs-sm); }
+.learn { display: grid; gap: 12px; padding: 4px 0 8px; }
+.learn-bar { height: 14px; border-radius: 7px; background: var(--rinse-2); overflow: hidden; }
+.learn-bar span { display: block; height: 100%; background: var(--mint); transition: width .3s; }
+
+/* ---------- learned pictures (phone) ---------- */
+.vision-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.vision-pic { position: relative; aspect-ratio: 1; border: 0; padding: 0; border-radius: 10px; overflow: hidden; background: var(--rinse-2); }
+.vision-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vision-pic span { position: absolute; left: 4px; bottom: 4px; padding: 1px 6px; border-radius: 6px; font-size: var(--fs-xs); background: rgba(0, 0, 0, .55); color: #fff; }
 
 @media (max-width: 640px) {
   .scan-body { grid-template-columns: 1fr; }

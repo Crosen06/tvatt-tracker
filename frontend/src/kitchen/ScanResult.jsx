@@ -8,8 +8,11 @@ import NewItemSheet from "./NewItemSheet.jsx";
 
 const fresh = (item) => getState().items.find((i) => i.id === item.id) || item;
 
-function KnownItem({ item, onDone }) {
+// onAction: called once when the user acts on the card (confirms a recognised item).
+// onLearn: shows "Lär in bilder" for this item.
+export function KnownItem({ item, onDone, onAction, onLearn, note, extra }) {
   async function intoPantry() {
+    onAction?.();
     const it = fresh(item);
     const ok = await updateItem(it, it.counted ? { count_delta: 1 } : { status: "in_stock" });
     if (!ok) return;
@@ -19,6 +22,7 @@ function KnownItem({ item, onDone }) {
     onDone();
   }
   async function toList() {
+    onAction?.();
     const it = fresh(item);
     if (it.on_list) toast(`${it.name} står redan på inköpslistan`, "ok");
     else {
@@ -28,6 +32,7 @@ function KnownItem({ item, onDone }) {
     onDone();
   }
   async function out() {
+    onAction?.();
     const it = fresh(item);
     const wasOut = it.status === "out";
     const updated = await updateItem(it, { status: "out" });
@@ -43,12 +48,15 @@ function KnownItem({ item, onDone }) {
   }
   return (
     <div className="scan-result">
+      {note && <p className="scan-note">{note}</p>}
       <h2>{item.name}</h2>
       <p className="hint">{item.category} · {statusLabel(fresh(item))}</p>
+      {extra}
       <div className="scan-actions">
         <button className="btn btn-primary" onClick={intoPantry}>In i skafferiet</button>
         <button className="btn" onClick={toList}>På inköpslistan</button>
         <button className="btn" onClick={out}>Slut</button>
+        {onLearn && <button className="btn btn-ghost" onClick={() => onLearn(item)}>Lär in bilder</button>}
       </div>
     </div>
   );
@@ -114,6 +122,6 @@ function UnknownItem({ result, onResult }) {
   );
 }
 
-export default function ScanResult({ result, onResult, onDone }) {
-  return result.item ? <KnownItem item={result.item} onDone={onDone} /> : <UnknownItem result={result} onResult={onResult} />;
+export default function ScanResult({ result, onResult, onDone, onLearn }) {
+  return result.item ? <KnownItem item={result.item} onDone={onDone} onLearn={onLearn} /> : <UnknownItem result={result} onResult={onResult} />;
 }

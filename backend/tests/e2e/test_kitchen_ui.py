@@ -24,13 +24,24 @@ BACKEND = Path(__file__).resolve().parents[2]
 @pytest.fixture
 def kserver(tmp_path):
     """Like `server`, but with fake internet (TVATT_FAKE_FETCH_DIR) and a fake camera folder."""
+    yield from _kitchen_server(tmp_path)
+
+
+@pytest.fixture
+def vserver(tmp_path):
+    """`kserver` with item recognition switched on (colour-histogram stand-in for the real model)."""
+    yield from _kitchen_server(tmp_path, {"TVATT_FAKE_VISION": "1"})
+
+
+def _kitchen_server(tmp_path, extra_env=None):
     from tests.e2e.test_ui import _free_port
 
     fake, cam, data = tmp_path / "fake", tmp_path / "cam", tmp_path / "data"
     fake.mkdir()
     cam.mkdir()
     port = _free_port()
-    env = {"TVATT_DATA": str(data), "PATH": "/usr/bin:/bin", "TVATT_FAKE_FETCH_DIR": str(fake), "TVATT_FAKE_CAMERA": str(cam)}
+    env = {"TVATT_DATA": str(data), "PATH": "/usr/bin:/bin", "TVATT_FAKE_FETCH_DIR": str(fake), "TVATT_FAKE_CAMERA": str(cam),
+           **(extra_env or {})}
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "--factory", "app.main:create_app", "--port", str(port)],
         cwd=BACKEND, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -516,4 +527,122 @@ def test_quick_plus_taps_all_count(server, browser):
     pw.expect(pg.locator(".counter-value")).to_have_text("3 st")
     time.sleep(0.3)
     assert item(base, "Krossade tomater")["count"] == 3
+    assert errors == []
+
+
+# ---------- item recognition ----------
+
+_pic = {"n": 0}
+
+
+def show_scene(srv, what):
+    """Put a picture in front of the fake camera: None (empty kitchen) or an item from vision_images."""
+    import cv2
+
+    from tests.kitchen.vision_images import scene
+
+    _pic["n"] += 1
+    path = srv["cam"] / f"scene-{_pic['n']:03d}.png"
+    cv2.imwrite(str(path), scene(what, seed=_pic["n"]))
+    # FolderSource shows the newest file; make sure this one is newest even within one mtime tick.
+    t = time.time() + _pic["n"] * 0.001
+    __import__("os").utime(path, (t, t))
+
+
+def type_osk(pg, text):
+    kb = pg.locator(".osk")
+    for ch in text:
+        kb.get_by_role("button", name=ch, exact=True).click()
+
+
+def test_learn_then_recognise_item(vserver, browser):
+    base = vserver["base"]
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/skafferi")
+    pg.get_by_role("button", name="Skanna").click()
+    pw.expect(pg.get_by_text("Håll upp varan mot kameran")).to_be_visible()
+    time.sleep(1.0)  # the empty kitchen becomes the background
+    show_scene(vserver, "banana")
+
+    # Teach the app what Banan looks like
+    pg.get_by_role("button", name="Lär in").click()
+    type_osk(pg, "banan")
+    pg.locator(".link-choices").get_by_role("button", name="Banan", exact=True).click()
+    pw.expect(pg.get_by_role("progressbar")).to_be_visible()
+    shot(pg, "kiosk-vision-learn")
+    pw.expect(pg.get_by_text("Lärde in 1 bild av Banan")).to_be_visible(timeout=20000)
+    banan = item(base, "Banan")
+    assert len(api(base, "GET", f"/api/items/{banan['id']}/images")) == 1
+
+    # Take it away and hold it up again: the card shows by itself
+    show_scene(vserver, None)
+    time.sleep(1.0)
+    show_scene(vserver, "banana")
+    card = pg.locator(".scan-result")
+    pw.expect(card.get_by_role("heading", name="Banan")).to_be_visible(timeout=10000)
+    pw.expect(card.get_by_text("Känd igen på bilden")).to_be_visible()
+    shot(pg, "kiosk-vision-sure")
+    card.get_by_role("button", name="In i skafferiet").click()
+    pw.expect(pg.get_by_text("Banan finns nu i skafferiet")).to_be_visible()
+    assert item(base, "Banan")["status"] == "in_stock"
+
+    # Something unknown: ask, then pick the right item, which teaches it
+    show_scene(vserver, "coffee")
+    time.sleep(0.5)
+    pg.get_by_role("button", name="Vad är det här?").click()
+    pw.expect(pg.get_by_role("heading", name="Är det någon av de här?")).to_be_visible(timeout=10000)
+    shot(pg, "kiosk-vision-maybe")
+    pg.locator(".scan-result").get_by_role("button", name="Sök vara").click()
+    type_osk(pg, "kaffe")
+    pg.locator(".link-choices").get_by_role("button", name="Kaffe", exact=True).click()
+    pw.expect(card.get_by_role("heading", name="Kaffe")).to_be_visible()
+    kaffe = item(base, "Kaffe")
+    for _ in range(30):
+        if api(base, "GET", f"/api/items/{kaffe['id']}/images"):
+            break
+        time.sleep(0.1)
+    assert [i["source"] for i in api(base, "GET", f"/api/items/{kaffe['id']}/images")] == ["confirm"]
+    assert no_hscroll(pg)
+    assert errors == []
+
+
+def test_no_recognition_buttons_without_model(kserver, browser):
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(kserver["base"] + "/?kiosk=1#/kok/skafferi")
+    pg.get_by_role("button", name="Skanna").click()
+    pw.expect(pg.get_by_text("Håll streckkoden mot kameran")).to_be_visible()
+    pw.expect(pg.get_by_role("button", name="Vad är det här?")).to_have_count(0)
+    pw.expect(pg.get_by_role("button", name="Lär in")).to_have_count(0)
+    assert errors == []
+
+
+def test_phone_learned_pictures(vserver, browser):
+    base = vserver["base"]
+    banan = item(base, "Banan")
+    api(base, "POST", "/api/scan/start")
+    for what in ("banana", "coffee"):
+        show_scene(vserver, what)
+        time.sleep(0.4)
+        assert api(base, "POST", "/api/vision/capture", {"item_id": banan["id"]})["saved"] is True
+    api(base, "POST", "/api/scan/stop")
+    errors = []
+    pg = new_page(browser, PHONE, errors)
+    pg.goto(base + "/#/admin")
+    pg.get_by_role("button", name="Inlärda bilder").click()
+    pg.get_by_role("button", name="Banan").click()
+    pics = pg.locator(".vision-pic")
+    pw.expect(pics).to_have_count(2)
+    shot(pg, "phone-vision-images")
+    pics.first.click()
+    pw.expect(pics).to_have_count(1)
+    pg.get_by_role("button", name="Ångra").click()
+    pw.expect(pics).to_have_count(2)
+    assert len(api(base, "GET", f"/api/items/{banan['id']}/images")) == 2
+    pg.once("dialog", lambda d: d.accept())
+    pg.get_by_role("button", name="Ta bort alla").click()
+    pw.expect(pg.get_by_text("Inga inlärda bilder än")).to_be_visible()
+    assert api(base, "GET", f"/api/items/{banan['id']}/images") == []
+    assert no_hscroll(pg)
     assert errors == []

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 export const isKiosk = new URLSearchParams(window.location.search).has("kiosk");
 
-const ID_ROUTES = [/^\/p\/(\d+)$/, /^\/admin\/plagg\/(\d+)$/, /^\/kok\/recept\/(\d+)$/, /^\/admin\/varor\/(\d+)$/, /^\/admin\/recept\/(\d+)$/];
+const ID_ROUTES = [/^\/p\/(\d+)$/, /^\/admin\/plagg\/(\d+)$/, /^\/kok\/recept\/(\d+)$/, /^\/admin\/varor\/(\d+)$/, /^\/admin\/recept\/(\d+)$/, /^\/admin\/bilder\/(\d+)$/];
 
 function parse() {
   const path = window.location.hash.replace(/^#/, "") || "/";

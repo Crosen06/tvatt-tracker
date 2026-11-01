@@ -17,6 +17,8 @@ let state = {
   shopping: { entries: [], frequent: [] },
   recipes: [],
   scan: { seq: 0, code: null, error: null, running: false },
+  vision: { seq: 0, token: null, decision: "none", matches: [] },
+  visionStatus: { available: false, message: null, images: 0 },
   scanOpen: false,
 };
 const listeners = new Set();
@@ -48,6 +50,8 @@ const loaders = {
   shopping: async () => set({ shopping: await api.get("/api/shopping") }),
   recipes: async () => set({ recipes: await api.get("/api/recipes") }),
   scan: async () => set({ scan: await api.get("/api/scan/last") }),
+  vision: async () => set({ vision: await api.get("/api/vision/last") }),
+  visionStatus: async () => set({ visionStatus: await api.get("/api/vision/status") }),
   wash: async () => {
     const r = await api.get("/api/washes/current");
     set({ wash: r.wash, serverOffsetMs: Date.parse(r.server_now) - Date.now() });
@@ -64,6 +68,7 @@ const TOPICS = {
   shopping: ["shopping", "items"],
   recipes: ["recipes"],
   scan: ["scan"],
+  vision: ["vision", "visionStatus"],
 };
 
 const pending = new Set();

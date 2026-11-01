@@ -25,14 +25,22 @@ const BookIcon = () => (
   </svg>
 );
 
+const EyeIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
 export default function AdminHome() {
-  const { garments, programs, items: pantry, recipes } = useStore();
+  const { garments, programs, items: pantry, recipes, visionStatus } = useStore();
   const items = [
     { to: "/admin/ny", icon: <CameraIcon />, title: "Lägg till plagg", sub: "Fota och tagga ett nytt plagg" },
     { to: "/admin/plagg", icon: <BasketIcon />, title: "Alla plagg", sub: plural(garments.length, "plagg", "plagg") },
     { to: "/admin/program", icon: <TimerIcon />, title: "Tvättprogram", sub: `${plural(programs.length, "program", "program")} och hur långa de är` },
     { to: "/admin/varor", icon: <PantryIcon />, title: "Varor", sub: `${plural(pantry.length, "vara", "varor")} i skafferiet` },
     { to: "/admin/recept", icon: <BookIcon />, title: "Recept", sub: `${plural(recipes.length, "recept", "recept")} · nytt eller från länk` },
+    { to: "/admin/bilder", icon: <EyeIcon />, title: "Inlärda bilder", sub: visionStatus.available ? `${plural(visionStatus.images, "bild", "bilder")} som köket känner igen varor på` : "Bildigenkänningen är inte installerad" },
     { to: "/admin/installningar", icon: <GearIcon />, title: "Inställningar", sub: "Personer, tvättregler och kök" },
   ];
   return (
