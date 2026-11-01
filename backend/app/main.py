@@ -11,7 +11,7 @@ from starlette.staticfiles import StaticFiles
 from app.config import resolve_data_dir
 from app.db import connect, init_db
 from app.events import EventBus
-from app.routers import events, garments, people, programs, settings, suggestions, washes
+from app.routers import events, garments, kitchen_items, people, programs, settings, suggestions, washes
 from app.web import http_error
 
 
@@ -20,6 +20,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 async def health(request):
     return JSONResponse({"ok": True})
+
+
+async def api_not_found(request):
+    raise HTTPException(404, "Not Found")
 
 
 async def spa(request):
@@ -53,6 +57,8 @@ def create_app(data_dir: Path | None = None) -> Starlette:
         *suggestions.routes,
         *washes.routes,
         *events.routes,
+        *kitchen_items.routes,
+        Route("/api/{path:path}", api_not_found, methods=["GET", "POST", "PATCH", "PUT", "DELETE"]),
         Mount("/photos", app=StaticFiles(directory=data_dir / "photos"), name="photos"),
         Route("/{path:path}", spa, methods=["GET", "HEAD"]),
     ]

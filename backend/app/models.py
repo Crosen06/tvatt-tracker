@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Temp = Literal[20, 30, 40, 50, 60, 90]
 Color = Literal["white", "light", "dark", "colored"]
@@ -77,3 +77,71 @@ class WashIn(Strict):
     garment_ids: list[int] = Field(min_length=1)
     temp: Temp | None = None  # informational; the wash runs at the program's temperature
     spin: Spin | None = None  # defaults to the lowest max spin of the garments
+
+
+# ---------- kitchen ----------
+
+Category = Literal["Kyl", "Frys", "Skafferi", "Frukt & grönt", "Bröd", "Kryddor", "Dryck", "Hushåll"]
+Status = Literal["in_stock", "low", "out"]
+
+
+def _clean_name(v: str | None) -> str | None:
+    if v is None:
+        return v
+    v = " ".join(v.split())
+    if not v:
+        raise ValueError("blank")
+    return v
+
+
+def _clean_words(v: list[str]) -> list[str]:
+    out = []
+    for w in v:
+        w = " ".join(w.split()).lower()
+        if w and w not in out:
+            out.append(w)
+    return out[:20]
+
+
+class ItemIn(Strict):
+    name: str = Field(max_length=40)
+    category: Category
+    staple: bool = False
+    counted: bool = False
+    match_words: list[str] = Field(default_factory=list)
+    status: Status = "out"
+    count: int | None = Field(default=None, ge=0, le=999)
+
+    _n = field_validator("name")(lambda cls, v: _clean_name(v))
+    _w = field_validator("match_words")(lambda cls, v: _clean_words(v))
+
+
+class ItemPatch(Strict):
+    name: str | None = Field(default=None, max_length=40)
+    category: Category | None = None
+    staple: bool | None = None
+    counted: bool | None = None
+    match_words: list[str] | None = None
+    status: Status | None = None
+    count: int | None = Field(default=None, ge=0, le=999)
+
+    _n = field_validator("name")(lambda cls, v: _clean_name(v))
+    _w = field_validator("match_words")(lambda cls, v: None if v is None else _clean_words(v))
+
+
+class ShoppingIn(Strict):
+    item_id: int | None = None
+    text: str | None = Field(default=None, max_length=60)
+    note: str | None = Field(default=None, max_length=60)
+
+    _t = field_validator("text")(lambda cls, v: _clean_name(v))
+
+    @model_validator(mode="after")
+    def _one_of(self):
+        if (self.item_id is None) == (self.text is None):
+            raise ValueError("item_id or text")
+        return self
+
+
+class UnpackIn(Strict):
+    entry_ids: list[int] = Field(max_length=500)

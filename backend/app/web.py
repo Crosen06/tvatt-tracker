@@ -19,12 +19,17 @@ async def parse(request: Request, model: type[M]) -> M:
     return validate(model, data)
 
 
+FIELD_LABELS = {"name": "namn", "category": "kategori", "count": "antal", "text": "text", "title": "titel", "url": "länk"}
+
+
 def validate(model: type[M], data) -> M:
     try:
         return model.model_validate(data)
     except ValidationError as e:
         first = e.errors()[0]
-        loc = ".".join(str(p) for p in first["loc"])
+        if not first["loc"]:
+            raise HTTPException(422, "Ogiltiga uppgifter.")
+        loc = ".".join(FIELD_LABELS.get(str(p), str(p)) for p in first["loc"])
         raise HTTPException(422, f"Ogiltigt värde för {loc}.")
 
 
