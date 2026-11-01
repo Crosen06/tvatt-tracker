@@ -54,9 +54,8 @@ python3 -m venv "$REPO/.venv"
 mkdir -p "$DATA_DIR"
 
 step "Installerar tjänsten tvatt"
-sed -e "s|@USER@|$(id -un)|g" -e "s|@REPO@|$REPO|g" -e "s|@DATA@|$DATA_DIR|g" \
-  "$REPO/deploy/tvatt.service" | sudo tee /etc/systemd/system/tvatt.service >/dev/null
-sudo systemctl daemon-reload
+chmod +x "$REPO/deploy/install-service.sh"
+"$REPO/deploy/install-service.sh" "$DATA_DIR" >/dev/null
 sudo systemctl enable tvatt.service
 sudo systemctl restart tvatt.service
 for _ in $(seq 1 30); do

@@ -5,3 +5,5 @@ uvicorn>=0.30
 pydantic>=2.6,<3
 pillow>=10.0
 python-multipart>=0.0.9
+# Barcode scanning (cv2.barcode is in the main module from 4.8). Tested with 5.0.
+opencv-python-headless>=4.8

@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -80,3 +81,77 @@ def test_kiosk_clears_crash_flag_and_launches(tmp_path):
     args = log.read_text()
     for flag in ("--kiosk", "--no-first-run", "--noerrdialogs", "http://127.0.0.1:9/?kiosk=1"):
         assert flag in args
+
+
+SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
+
+
+def update_env(tmp_path):
+    log = tmp_path / "calls.log"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in ("git", "systemctl", "pkill", "pip"):
+        exe = bin_dir / name
+        exe.write_text(f'#!/bin/sh\necho "{name} $@" >> "{log}"\n')
+        exe.chmod(0o755)
+    sudo = bin_dir / "sudo"
+    sudo.write_text('#!/bin/sh\nexec "$@"\n')
+    sudo.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path),
+        "TVATT_UNIT_PATH": str(tmp_path / "tvatt.service"), "TVATT_PIP": str(bin_dir / "pip"),
+    }
+    return env, log
+
+
+def test_update_reinstalls_changed_unit(tmp_path):
+    env, log = update_env(tmp_path)
+    unit = tmp_path / "tvatt.service"
+    unit.write_text("[Service]\nEnvironment=TVATT_DATA=/home/pi/min-data\nold\n")
+    r = run("update.sh", env)
+    assert r.returncode == 0, r.stderr
+    calls = log.read_text()
+    assert "systemctl daemon-reload" in calls and "systemctl restart tvatt.service" in calls
+    text = unit.read_text()
+    assert "SupplementaryGroups=video" in text
+    assert "Environment=TVATT_DATA=/home/pi/min-data" in text  # keeps the data dir it was installed with
+    assert "@REPO@" not in text
+
+    log.write_text("")
+    r = run("update.sh", env)
+    assert r.returncode == 0, r.stderr
+    assert "daemon-reload" not in log.read_text()
+    assert "systemctl restart tvatt.service" in log.read_text()
+
+
+def test_service_has_video_group():
+    assert "SupplementaryGroups=video" in (DEPLOY / "tvatt.service").read_text()
+
+
+def test_requirements_include_opencv():
+    reqs = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text()
+    assert "opencv-python-headless>=4.8" in reqs
+
+
+def test_check_kitchen_offline_and_fake_camera(tmp_path):
+    import cv2
+
+    from tests.kitchen.barcode_images import ean13_frame
+
+    cam, fake = tmp_path / "cam", tmp_path / "fake"
+    cam.mkdir()
+    fake.mkdir()
+    cv2.imwrite(str(cam / "a.png"), ean13_frame("4006381333931"))
+    env = {
+        "PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "TVATT_FAKE_CAMERA": str(cam), "TVATT_FAKE_FETCH_DIR": str(fake),
+        "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+    }
+    r = subprocess.run(
+        [sys.executable, str(SCRIPTS / "check_kitchen.py"), "--base", "http://127.0.0.1:9", "--camera-seconds", "5"],
+        env=env, capture_output=True, text=True, timeout=60,
+    )
+    out = r.stdout
+    assert r.returncode == 1, out + r.stderr
+    assert "✓ Kamera" in out and "4006381333931" in out
+    assert "✗ Open Food Facts" in out and "✗ ICA-sök" in out
+    assert "Traceback" not in out + r.stderr
