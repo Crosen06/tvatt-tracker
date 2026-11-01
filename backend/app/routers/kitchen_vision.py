@@ -6,10 +6,17 @@ from starlette.routing import Route
 
 from app.kitchen import repo
 from app.kitchen.vision_service import VisionUnavailable
-from app.models import VisionCaptureIn, VisionConfirmIn
-from app.web import no_content, ok, parse, path_id
+from app.models import MAX_ID, VisionCaptureIn, VisionConfirmIn
+from app.web import no_content, ok, parse
 
 NOT_RUNNING = "Kameran är inte igång."
+
+
+def path_id(request) -> int:
+    value = int(request.path_params["id"])
+    if not 0 < value <= MAX_ID:
+        raise HTTPException(404, "Finns inte.")
+    return value
 
 
 def _vision(request):

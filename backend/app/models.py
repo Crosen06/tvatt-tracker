@@ -235,10 +235,13 @@ class BarcodeIn(Strict):
         return self
 
 
+MAX_ID = 2**63 - 1  # SQLite INTEGER
+
+
 class VisionCaptureIn(Strict):
-    item_id: int
+    item_id: int = Field(ge=1, le=MAX_ID)
 
 
 class VisionConfirmIn(Strict):
     token: str = Field(min_length=1, max_length=64)
-    item_id: int
+    item_id: int = Field(ge=1, le=MAX_ID)

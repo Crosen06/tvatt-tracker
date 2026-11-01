@@ -35,9 +35,13 @@ class VisionService:
         self._loaded = False
         self._embedder = None
         self.message: str | None = None
-        self._lock = threading.RLock()
+        self._lock = threading.RLock()  # embedder, gallery, watcher
+        self._save_lock = threading.Lock()  # duplicate check + cap + insert happen as one step
         self._gallery = None
         self._signature = None
+        self._version = 0  # bumped whenever learned pictures change
+        self._session = 0
+        self._barcode_thread: threading.Thread | None = None
         self.tokens = vision.TokenStore(clock=clock_fn)
         self._watcher = vision.Watcher(clock_fn)
         self._worker: threading.Thread | None = None
@@ -86,19 +90,19 @@ class VisionService:
         return self._require().model_id
 
     def _refresh(self, conn) -> None:
-        sig = tuple(conn.execute(
-            "SELECT (SELECT COUNT(*) FROM item_image), (SELECT MAX(id) FROM item_image), "
-            "(SELECT COUNT(*) FROM item WHERE archived=1)"
-        ).fetchone())
+        archived = tuple(conn.execute("SELECT COUNT(*), TOTAL(id) FROM item WHERE archived=1").fetchone())
+        sig = (self._version, archived)
         with self._lock:
             if self._gallery is not None and sig == self._signature:
                 return
+            emb = self._require()
             rows = conn.execute(
                 "SELECT m.item_id, m.embedding FROM item_image m JOIN item i ON i.id = m.item_id "
-                "WHERE i.archived=0 AND m.model=?", (self._model(),)
+                "WHERE i.archived=0 AND m.model=?", (emb.model_id,)
             ).fetchall()
             gallery = vision.Gallery()
-            gallery.set((r["item_id"], vision.from_blob(r["embedding"])) for r in rows)
+            vecs = ((r["item_id"], vision.from_blob(r["embedding"])) for r in rows)
+            gallery.set((i, v) for i, v in vecs if len(v) == emb.dim)
             self._gallery, self._signature = gallery, sig
 
     def _matches(self, vec) -> list[tuple[int, float]]:
@@ -126,43 +130,60 @@ class VisionService:
 
     def _save(self, item_id: int, vec, jpeg: bytes, source: str) -> bool:
         """Store a learned picture unless it repeats one already learned. Raises repo.NotFound."""
-        model = self._model()
-        conn = self._conn()
-        try:
-            repo.fetch_item(conn, item_id)
-            rows = conn.execute(
-                "SELECT id, embedding, source FROM item_image WHERE item_id=? AND model=? ORDER BY id",
-                (item_id, model),
-            ).fetchall()
-            if any(vision.cosine(vision.from_blob(r["embedding"]), vec) >= vision.DUPLICATE for r in rows):
-                return False
-            name = f"{uuid.uuid4().hex}.jpg"
-            (self.dir / name).write_bytes(jpeg)
-            with conn:
-                conn.execute(
-                    "INSERT INTO item_image (item_id, file, model, embedding, source, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (item_id, name, model, vision.to_blob(vec), source, clock.to_iso(clock.utcnow())),
-                )
+        emb = self._require()
+        removed_files: list[str] = []
+        with self._save_lock:
+            conn = self._conn()
+            try:
+                repo.fetch_item(conn, item_id)
+                rows = conn.execute(
+                    "SELECT id, embedding, source FROM item_image WHERE item_id=? AND model=? ORDER BY id",
+                    (item_id, emb.model_id),
+                ).fetchall()
+                learned = [vision.from_blob(r["embedding"]) for r in rows]
+                if any(len(v) == len(vec) and vision.cosine(v, vec) >= vision.DUPLICATE for v in learned):
+                    return False
                 excess = len(rows) + 1 - vision.MAX_PER_ITEM
-                if excess > 0:
-                    # Oldest automatic pictures go first; pictures from "Lär in" only when there are none.
-                    victims = sorted(rows, key=lambda r: (r["source"] == "learn", r["id"]))[:excess]
-                    self._delete_rows(conn, [r["id"] for r in victims])
-        finally:
-            conn.close()
+                automatic = [r for r in rows if r["source"] != "learn"]
+                if excess > 0 and source != "learn" and len(automatic) < excess:
+                    return False  # the item is full of pictures from "Lär in"; keep those
+                # Oldest automatic pictures go first; pictures from "Lär in" only when there are none.
+                victims = sorted(rows, key=lambda r: (r["source"] == "learn", r["id"]))[:max(excess, 0)]
+                name = f"{uuid.uuid4().hex}.jpg"
+                path = self.dir / name
+                try:
+                    with conn:
+                        conn.execute(
+                            "INSERT INTO item_image (item_id, file, model, embedding, source, created_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (item_id, name, emb.model_id, vision.to_blob(vec), source, clock.to_iso(clock.utcnow())),
+                        )
+                        removed_files = self._delete_rows(conn, [r["id"] for r in victims])
+                        path.write_bytes(jpeg)
+                except Exception:
+                    path.unlink(missing_ok=True)
+                    raise
+            finally:
+                conn.close()
+            self._unlink(removed_files)
+            self._version += 1
         self._publish("vision")
         return True
 
-    def _delete_rows(self, conn, ids) -> int:
-        removed = 0
+    def _delete_rows(self, conn, ids) -> list[str]:
+        """Delete rows (inside the caller's transaction); returns their files to remove after commit."""
+        files = []
         for image_id in ids:
             row = conn.execute("SELECT file FROM item_image WHERE id=?", (image_id,)).fetchone()
             if row is None:
                 continue
             conn.execute("DELETE FROM item_image WHERE id=?", (image_id,))
-            (self.dir / Path(row["file"]).name).unlink(missing_ok=True)
-            removed += 1
-        return removed
+            files.append(row["file"])
+        return files
+
+    def _unlink(self, files) -> None:
+        for f in files:
+            (self.dir / Path(f).name).unlink(missing_ok=True)
 
     # --- public API ------------------------------------------------------------------------------
 
@@ -198,12 +219,21 @@ class VisionService:
         return self._save(item_id, entry[0], entry[1], "confirm")
 
     def on_barcode(self, code: str, frame) -> None:
-        """Scanner thread: a barcode was read. Learn the picture if the code belongs to an item."""
+        """Scanner thread: a barcode was read. The picture is learned in the background."""
         try:
-            self._watcher.barcode_seen()
+            self._watcher.barcode_seen()  # plain attribute writes: no lock, so the scanner never waits
             if frame is None or not self.available:
                 return
+            t = threading.Thread(target=self._learn_barcode, args=(code, frame), name="vision-barcode", daemon=True)
+            self._barcode_thread = t
+            t.start()
+        except Exception:  # noqa: BLE001  - never raise into the scanner thread
+            log.exception("Could not handle barcode %s", code)
+
+    def _learn_barcode(self, code: str, frame) -> None:
+        try:
             vec, jpeg = self._embed(frame)
+            self._watcher.hold(vec)
             conn = self._conn()
             try:
                 row = conn.execute(
@@ -234,38 +264,41 @@ class VisionService:
         if not self.available:
             return
         with self._lock:
-            if self._worker is not None and self._worker.is_alive():
-                return
+            self._session += 1
             self._watcher = vision.Watcher(self._clock)
-            self._worker = threading.Thread(target=self._run, args=(scanner,), name="vision", daemon=True)
+            self._worker = threading.Thread(target=self._run, args=(scanner, self._session), name="vision", daemon=True)
             self._worker.start()
 
-    def _run(self, scanner) -> None:
+    def _run(self, scanner, session: int) -> None:
         try:
-            while scanner.running:
+            while scanner.running and session == self._session:
                 frame = scanner.latest_frame()
                 if frame is not None:
-                    vec = self._watcher.step(frame, lambda f: self._embed(f)[0])
-                    if vec is not None:
-                        self._suggest(frame, vec)
+                    with self._lock:
+                        watcher = self._watcher
+                    watcher.step(frame, lambda f: self._embed(f)[0], lambda vec: self._suggest(frame, vec))
                 time.sleep(CHECK_EVERY)
         except Exception:  # noqa: BLE001  - automatic mode stops; scanning goes on
             log.exception("Automatic recognition stopped")
 
-    def _suggest(self, frame, vec) -> None:
+    def _suggest(self, frame, vec) -> bool:
+        """Automatic mode: show a card only when the item is recognised with confidence."""
         matches = self._matches(vec)
-        if vision.decide(matches) == "none":
-            return
+        if vision.decide(matches) != "sure":
+            return False
         result = self._result(vec, self._jpeg(vision.model_input(frame)), matches)
+        if not result["matches"]:
+            return False
         self._seq += 1
         self.last = {"seq": self._seq, **result}
         self._publish("vision")
+        return True
 
     def wait_idle(self, timeout: float = 2.0) -> None:
-        """Tests: wait for the worker to finish after the scanner stopped."""
-        t = self._worker
-        if t is not None:
-            t.join(timeout)
+        """Tests: wait for the worker (after the scanner stopped) and any barcode learning to finish."""
+        for t in (self._worker, self._barcode_thread):
+            if t is not None:
+                t.join(timeout)
 
     # --- learned pictures ----------------------------------------------------------------------------
 
@@ -296,24 +329,30 @@ class VisionService:
             conn.close()
 
     def delete_image(self, image_id: int) -> bool:
-        conn = self._conn()
-        try:
-            with conn:
-                removed = self._delete_rows(conn, [image_id])
-        finally:
-            conn.close()
+        with self._save_lock:
+            conn = self._conn()
+            try:
+                with conn:
+                    removed = self._delete_rows(conn, [image_id])
+            finally:
+                conn.close()
+            self._unlink(removed)
+            self._version += 1
         if removed:
             self._publish("vision")
         return bool(removed)
 
     def delete_item_images(self, item_id: int) -> int:
-        conn = self._conn()
-        try:
-            repo.fetch_item(conn, item_id)
-            with conn:
-                ids = [r["id"] for r in conn.execute("SELECT id FROM item_image WHERE item_id=?", (item_id,))]
-                removed = self._delete_rows(conn, ids)
-        finally:
-            conn.close()
+        with self._save_lock:
+            conn = self._conn()
+            try:
+                repo.fetch_item(conn, item_id)
+                with conn:
+                    ids = [r["id"] for r in conn.execute("SELECT id FROM item_image WHERE item_id=?", (item_id,))]
+                    removed = self._delete_rows(conn, ids)
+            finally:
+                conn.close()
+            self._unlink(removed)
+            self._version += 1
         self._publish("vision")
-        return removed
+        return len(removed)

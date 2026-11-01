@@ -26,6 +26,7 @@ STD = (0.229, 0.224, 0.225)
 
 DUPLICATE = 0.97  # a new picture this close to one already learned for the item adds nothing
 BACKGROUND = 0.92  # a still picture this close to the empty scene means nothing is held up
+SAME_HOLD = 0.90  # a still picture this close to the item just suggested is the same hold
 STILL_DIFF = 6.0  # mean grey-level change (0-255) between checks below which the picture is still
 STILL_CHECKS = 2
 QUIET_AFTER_BARCODE = 2.0  # seconds: a barcode just read wins over recognition
@@ -121,8 +122,6 @@ def feature_layer(net) -> str | None:
 class OnnxEmbedder:
     """Penultimate-layer features of an ONNX image classifier, run with cv2.dnn."""
 
-    model_id = MODEL_ID
-
     def __init__(self, path: Path, input_size: int = INPUT_SIZE):
         cv2 = _cv2()
         self.input_size = input_size
@@ -132,6 +131,8 @@ class OnnxEmbedder:
             self._net = cv2.dnn.readNetFromONNX(str(path))
         self.layer = feature_layer(self._net)
         self.dim = len(self.embed(_np().zeros((input_size, input_size, 3), _np().uint8)))
+        # The length is part of the id, so features from another layer are never mixed with these.
+        self.model_id = f"{MODEL_ID}-{self.dim}"
 
     def embed(self, img):
         cv2 = _cv2()
@@ -262,8 +263,10 @@ class TokenStore:
 class Watcher:
     """Decides when the automatic mode should try to recognise the picture.
 
-    `step` returns an embedding to match when something new is held still in front of the camera,
-    otherwise None. The first still scene is taken as the empty background.
+    `step(frame, embed, recognise)` embeds the picture when something new has been held still, and
+    calls `recognise(vec)`, which returns True when it made a suggestion. A still picture that is
+    not confidently recognised becomes the "empty kitchen" background; the item just suggested (or
+    just read by barcode) is not suggested again while it stays in view.
     """
 
     def __init__(self, clock=time.monotonic):
@@ -272,12 +275,21 @@ class Watcher:
         self._still = 0
         self._moved = True
         self._background = None
+        self._held = None  # embedding of the item last suggested or read by barcode
         self._barcode_at = -1e9
 
-    def barcode_seen(self) -> None:
+    def barcode_seen(self, vec=None) -> None:
+        """A barcode was read: that hold is handled; `vec` is the picture, when known."""
         self._barcode_at = self._clock()
+        self._moved = False
+        if vec is not None:
+            self._held = vec
 
-    def step(self, frame, embed):
+    def hold(self, vec) -> None:
+        """The item in this picture is being dealt with (e.g. its barcode was read)."""
+        self._held = vec
+
+    def step(self, frame, embed, recognise):
         cv2, np = _cv2(), _np()
         grey = frame if frame.ndim == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         small = cv2.resize(grey, (32, 24), interpolation=cv2.INTER_AREA).astype(np.float32)
@@ -293,7 +305,13 @@ class Watcher:
             return None  # try again on the next check
         self._moved = False
         vec = embed(frame)
-        if self._background is None or cosine(vec, self._background) >= BACKGROUND:
-            self._background = vec
+        if self._background is not None and cosine(vec, self._background) >= BACKGROUND:
+            self._background, self._held = vec, None  # nothing held up (any more)
             return None
-        return vec
+        if self._held is not None and cosine(vec, self._held) >= SAME_HOLD:
+            return None  # the same item, still in view
+        if recognise(vec):
+            self._held = vec
+            return vec
+        self._background, self._held = vec, None
+        return None

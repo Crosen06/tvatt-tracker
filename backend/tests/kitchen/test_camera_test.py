@@ -95,3 +95,25 @@ def test_camera_test_recognize_without_model(tmp_path, monkeypatch, capsys):
     mod = load_script()
     assert mod.main(["--recognize", "--data", str(tmp_path)]) == 1
     assert "inte installerad" in capsys.readouterr().out
+
+
+def test_camera_test_reads_settings_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("TVATT_VISION_SURE", raising=False)
+    monkeypatch.delenv("TVATT_CAMERA", raising=False)
+    (tmp_path / "tvatt.env").write_text("# own settings\nTVATT_VISION_SURE=0.9\nTVATT_CAMERA=2\n")
+    seen = []
+
+    class Cam(FakeCam):
+        def __init__(self, index):
+            seen.append(index)
+            super().__init__(index)
+
+    monkeypatch.setattr(scanner, "CvSource", Cam)
+    mod = load_script()
+    monkeypatch.setattr(mod, "release_app_camera", lambda base: None)
+    mod.main(["--seconds", "0.1", "--data", str(tmp_path), "--out", str(tmp_path / "b.jpg")])
+    import os
+
+    assert seen == [2] and os.environ["TVATT_VISION_SURE"] == "0.9"
+    monkeypatch.delenv("TVATT_VISION_SURE")
+    monkeypatch.delenv("TVATT_CAMERA")

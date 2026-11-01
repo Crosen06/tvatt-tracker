@@ -158,49 +158,112 @@ def embed_fn():
     return lambda frame: emb.embed(vision.model_input(frame))
 
 
-def run(watcher, frames, clock, step=0.25):
+def learned(*items):
+    """A recognise() callback that suggests only items in a gallery learned from these scenes."""
+    embed = embed_fn()
+    g = Gallery()
+    g.set((i, embed(scene(name, seed=100 + i))) for i, name in enumerate(items))
+    calls = []
+
+    def recognise(vec):
+        sure = decide(g.match(vec), LIMITS) == "sure"
+        calls.append(sure)
+        return sure
+
+    recognise.calls = calls
+    return recognise
+
+
+def run(watcher, frames, clock, recognise, step=0.25):
     out = []
     embed = embed_fn()
     for f in frames:
-        out.append(watcher.step(f, embed))
+        out.append(watcher.step(f, embed, recognise))
         clock.t += step
     return out
+
+
+def hits(out):
+    return [i for i, v in enumerate(out) if v is not None]
 
 
 def test_watcher_empty_scene_never_suggests():
     clock = Clock()
     w = Watcher(clock)
-    out = run(w, [scene(None, seed=i) for i in range(20)], clock)
-    assert all(v is None for v in out)
+    rec = learned("banana")
+    out = run(w, [scene(None, seed=i) for i in range(20)], clock, rec)
+    assert hits(out) == []
 
 
 def test_watcher_one_suggestion_per_hold():
     clock = Clock()
     w = Watcher(clock)
+    rec = learned("banana", "coffee")
     frames = [scene(None, seed=i) for i in range(4)] + [scene("banana", seed=10 + i) for i in range(10)]
-    out = run(w, frames, clock)
-    hits = [i for i, v in enumerate(out) if v is not None]
-    assert hits == [6]  # banana arrives at 4 (moved), still at 5 and 6 → recognised once
+    assert hits(run(w, frames, clock, rec)) == [6]  # arrives at 4 (moved), still at 5 and 6 → once
     # take it away and hold it up again: one more suggestion
     frames = [scene(None, seed=30 + i) for i in range(4)] + [scene("banana", seed=40 + i) for i in range(6)]
-    out = run(w, frames, clock)
-    assert sum(v is not None for v in out) == 1
+    assert len(hits(run(w, frames, clock, rec))) == 1
 
 
-def test_watcher_waits_after_barcode():
+def test_watcher_hand_shake_is_same_hold():
     clock = Clock()
     w = Watcher(clock)
-    run(w, [scene(None, seed=i) for i in range(4)], clock)
+    rec = learned("banana")
+    frames = [scene(None, seed=i) for i in range(4)] + [scene("banana", seed=10 + i) for i in range(4)]
+    frames += [scene("banana", seed=20, shift=40)] + [scene("banana", seed=21 + i, shift=40) for i in range(4)]
+    assert len(hits(run(w, frames, clock, rec))) == 1
+
+
+def test_watcher_item_held_when_opening_is_suggested():
+    clock = Clock()
+    w = Watcher(clock)
+    assert hits(run(w, [scene("banana", seed=i) for i in range(6)], clock, learned("banana"))) == [2]
+
+
+def test_watcher_unrecognised_scene_becomes_background():
+    clock = Clock()
+    w = Watcher(clock)
+    rec = learned("banana")
+    # Opened while holding something unknown: it is not suggested and becomes the background …
+    out = run(w, [scene("coffee", seed=i) for i in range(5)], clock, rec)
+    assert hits(out) == [] and rec.calls == [False]
+    # … and when it is put down, the empty kitchen replaces it; the banana is still found
+    frames = [scene(None, seed=10 + i) for i in range(4)] + [scene("banana", seed=20 + i) for i in range(4)]
+    assert len(hits(run(w, frames, clock, rec))) == 1
+
+
+def test_watcher_barcode_hold_not_suggested_again():
+    clock = Clock()
+    w = Watcher(clock)
+    rec = learned("coffee")
+    embed = embed_fn()
+    run(w, [scene(None, seed=i) for i in range(4)], clock, rec)
+    w.barcode_seen(embed(scene("coffee", seed=50)))
+    # still holding the scanned item, with a shake after the quiet time: no card pops up again
+    frames = [scene("coffee", seed=60 + i) for i in range(12)] + [scene("coffee", seed=80 + i, shift=30) for i in range(6)]
+    assert hits(run(w, frames, clock, rec)) == []
+    # put down and held up again: suggested
+    frames = [scene(None, seed=90 + i) for i in range(4)] + [scene("coffee", seed=95 + i) for i in range(4)]
+    assert len(hits(run(w, frames, clock, rec))) == 1
+
+
+def test_watcher_waits_after_barcode_without_picture():
+    clock = Clock()
+    w = Watcher(clock)
+    rec = learned("coffee")
+    run(w, [scene(None, seed=i) for i in range(4)], clock, rec)
     w.barcode_seen()
-    out = run(w, [scene("coffee", seed=10 + i) for i in range(12)], clock)
-    first = next(i for i, v in enumerate(out) if v is not None)
-    assert first * 0.25 >= vision.QUIET_AFTER_BARCODE - 0.5
-    assert sum(v is not None for v in out) == 1
+    frames = [scene("bread", seed=10 + i, shift=(-1) ** i * 60) for i in range(4)] + [scene("coffee", seed=20 + i) for i in range(12)]
+    out = run(w, frames, clock, rec)
+    assert len(hits(out)) == 1
+    assert hits(out)[0] * 0.25 >= vision.QUIET_AFTER_BARCODE - 0.5
 
 
 def test_watcher_moving_item_not_recognised():
     clock = Clock()
     w = Watcher(clock)
-    run(w, [scene(None, seed=i) for i in range(4)], clock)
-    out = run(w, [scene("milk", seed=10 + i, shift=(-1) ** i * 60) for i in range(10)], clock)
-    assert all(v is None for v in out)
+    rec = learned("milk")
+    run(w, [scene(None, seed=i) for i in range(4)], clock, rec)
+    out = run(w, [scene("milk", seed=10 + i, shift=(-1) ** i * 60) for i in range(10)], clock, rec)
+    assert hits(out) == []

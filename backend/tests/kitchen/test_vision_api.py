@@ -139,6 +139,11 @@ def test_capture_and_confirm_errors(vc, cam):
     assert vc.get("/api/items/abc/images").status_code in (404, 422)
     assert vc.get("/api/items/9999/images").status_code == 404
     assert vc.delete("/api/vision/images/9999").status_code == 404
+    huge = 2**70
+    assert vc.get(f"/api/items/{huge}/images").status_code == 404
+    assert vc.delete(f"/api/vision/images/{huge}").status_code == 404
+    assert vc.post("/api/vision/capture", json={"item_id": huge}).status_code == 422
+    assert vc.post("/api/vision/confirm", json={"token": "x", "item_id": huge}).status_code == 422
 
 
 def test_list_and_delete_pictures(vc, cam):
@@ -187,12 +192,14 @@ def test_barcode_teaches_picture_when_linked_and_when_known(vc, cam):
     vc.post("/api/scan/stop")
     vc.app.state.vision.wait_idle()
     vc.app.state.vision.on_barcode(CODE, scene("milk"))
+    vc.app.state.vision.wait_idle()
     assert [i["source"] for i in vc.get(f"/api/items/{milk}/images").json()] == ["scan", "scan"]
     vc.app.state.vision.on_barcode(CODE, scene("milk", seed=5))  # the same view again adds nothing
+    vc.app.state.vision.wait_idle()
     assert len(vc.get(f"/api/items/{milk}/images").json()) == 2
 
 
-def test_automatic_suggestion(vc, cam):
+def test_automatic_suggestion(vc, cam):  # noqa: PLR0915
     milk, banana = new_item(vc, "Testmjölk"), new_item(vc, "Testbanan", "Frukt & grönt")
     seen = []
     publish = vc.app.state.bus.publish
@@ -249,3 +256,37 @@ def test_cap_removes_oldest_automatic_first(vc, monkeypatch):
     assert svc._save(milk, vecs[4], b"jpeg", "learn")
     assert sorted(i["source"] for i in svc.item_images(milk)) == ["learn", "learn", "learn"]
     assert len(list((vc.app.state.data_dir / "vision").iterdir())) == 3
+
+
+def test_full_of_learned_pictures_keeps_them(vc, monkeypatch):
+    monkeypatch.setattr(vision, "MAX_PER_ITEM", 2)
+    milk = new_item(vc, "Testmjölk")
+    svc = vc.app.state.vision
+    rng = np.random.default_rng(2)
+    vecs = [vision.unit(rng.normal(size=HistogramEmbedder.dim)) for _ in range(3)]
+    assert svc._save(milk, vecs[0], b"jpeg", "learn")
+    assert svc._save(milk, vecs[1], b"jpeg", "learn")
+    assert svc._save(milk, vecs[2], b"jpeg", "confirm") is False  # would push out a learned picture
+    assert sorted(i["source"] for i in svc.item_images(milk)) == ["learn", "learn"]
+
+
+def test_gallery_forgets_deleted_newest_picture(vc):
+    milk, coffee = new_item(vc, "Testmjölk"), new_item(vc, "Testkaffe", "Skafferi")
+    svc = vc.app.state.vision
+    emb = HistogramEmbedder()
+    m = emb.embed(vision.model_input(scene("milk")))
+    c = emb.embed(vision.model_input(scene("coffee")))
+    assert svc._save(coffee, c, b"jpeg", "learn")
+    assert svc._save(milk, m, b"jpeg", "learn")
+    assert svc._matches(m)[0][0] == milk
+    newest = svc.item_images(milk)[0]["id"]
+    assert svc.delete_image(newest)
+    assert svc._save(coffee, emb.embed(vision.model_input(scene("bread"))), b"jpeg", "learn")  # reuses the row id
+    assert all(item_id != milk for item_id, _ in svc._matches(m))
+
+
+def test_model_id_includes_feature_length(tmp_path):
+    from tests.kitchen.onnx_tiny import tiny_classifier
+
+    tiny_classifier(tmp_path / "m.onnx", size=224, feat=6)
+    assert vision.OnnxEmbedder(tmp_path / "m.onnx").model_id == "mobilenetv2-2022apr-6"

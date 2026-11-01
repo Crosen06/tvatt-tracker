@@ -28,6 +28,18 @@ from app.kitchen import scanner, vision  # noqa: E402
 DECISION = {"sure": "säker", "maybe": "osäker", "none": "ingen träff"}
 
 
+def load_env_file(data: Path) -> None:
+    """Use the app's own settings from <data>/tvatt.env (camera, size, thresholds), like the service does."""
+    path = data / "tvatt.env"
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"'))
+
+
 def load_gallery(data: Path, model_id: str):
     """Learned pictures for the active model, and item names, straight from the database."""
     gallery, names = vision.Gallery(), {}
@@ -72,12 +84,15 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--seconds", type=float, default=15)
     ap.add_argument("--size", default="", help="e.g. 1280x720 (default: as the app, normally 1920x1080)")
-    ap.add_argument("--camera", type=int, default=int(os.environ.get("TVATT_CAMERA", "0")))
+    ap.add_argument("--camera", type=int, default=None, help="default: TVATT_CAMERA or 0")
     ap.add_argument("--out", type=Path, default=data / "kamera-test.jpg")
     ap.add_argument("--base", default="http://localhost")
     ap.add_argument("--recognize", action="store_true", help="also show which learned items the picture looks like")
     ap.add_argument("--data", type=Path, default=data, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
+    load_env_file(args.data)
+    if args.camera is None:
+        args.camera = int(os.environ.get("TVATT_CAMERA", "0"))
     if args.size:
         os.environ["TVATT_CAMERA_SIZE"] = args.size
 
