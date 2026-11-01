@@ -74,5 +74,5 @@ class CheckIn(Strict):
 class WashIn(Strict):
     program_id: int
     garment_ids: list[int] = Field(min_length=1)
-    temp: Temp
-    spin: Spin
+    temp: Temp | None = None  # informational; the wash runs at the program's temperature
+    spin: Spin | None = None  # defaults to the lowest max spin of the garments

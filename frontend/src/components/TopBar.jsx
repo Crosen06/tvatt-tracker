@@ -1,7 +1,6 @@
-import { colorInfo, tempLabel } from "../lib/labels.js";
 import { isKiosk, navigate } from "../lib/router.js";
 import { useStore } from "../lib/store.js";
-import { formatClock, formatRemaining, progress, remainingMs, useNow } from "../lib/time.js";
+import { formatClock, formatShort, progress, remainingMs, useNow } from "../lib/time.js";
 import { CameraIcon, GearIcon } from "./Icons.jsx";
 import Porthole from "./Porthole.jsx";
 
@@ -34,15 +33,9 @@ export default function TopBar({ route }) {
       </nav>
       <div className="topbar-right">
         {wash && (
-          <button className="wash-chip" onClick={() => navigate("/tvatta")}>
+          <button className="wash-chip" onClick={() => navigate("/tvatta")} aria-label={`Tvätt pågår, ${formatShort(left)} kvar`}>
             <Porthole size={34} progress={progress(wash, serverOffsetMs, now)} running={left > 0} done={left <= 0} />
-            <span>
-              <span className="wash-chip-time">{formatRemaining(left)}</span>
-              <span className="wash-chip-name">
-                <span className="swatch" style={{ background: colorInfo(wash.items[0]?.color).swatch }} />
-                {tempLabel(wash.temp)}
-              </span>
-            </span>
+            <span className="wash-chip-time">{formatShort(left)}</span>
           </button>
         )}
         {!isKiosk && (

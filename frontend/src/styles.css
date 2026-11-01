@@ -69,7 +69,7 @@ img { display: block; }
 .tab {
   --accent: var(--mint);
   display: inline-flex; align-items: center; gap: 9px;
-  height: 52px; padding: 0 16px;
+  height: 52px; padding: 0 14px;
   border: 0; border-radius: var(--r-md);
   background: transparent;
   font-size: var(--fs-md); font-weight: 500;
@@ -102,9 +102,7 @@ img { display: block; }
   border: 1px solid var(--seam); border-radius: 26px;
   background: var(--night); text-align: left;
 }
-.wash-chip > span { display: flex; flex-direction: column; line-height: 1.15; }
-.wash-chip-time { font-weight: 500; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
-.wash-chip-name { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted); }
+.wash-chip-time { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .offline {
   padding: 8px 16px; background: var(--warn); color: #2a1a05;
@@ -296,7 +294,8 @@ img { display: block; }
   background: radial-gradient(circle at 50% 40%, #213a45 0%, var(--night) 70%);
   display: grid; place-items: center; padding: 20px;
 }
-.done-inner { display: grid; justify-items: center; gap: 14px; text-align: center; max-width: 640px; }
+.done-btn { min-width: 280px; }
+.done-inner { display: grid; justify-items: center; gap: 12px; text-align: center; max-width: 640px; }
 .done h1 { font-size: var(--fs-xxl); font-weight: 700; letter-spacing: -0.01em; }
 .done-sub { color: var(--muted); font-size: var(--fs-lg); }
 .done .porthole { animation: settle .6s ease-out; }

@@ -147,3 +147,21 @@ def test_in_wash_items_excluded_from_suggestions(client, now):
     start(client, [a["id"]])
     s = client.get("/api/suggestions").json()
     assert s[0]["item_ids"] == [b["id"]]
+
+
+def test_wash_records_program_temp(client, now):
+    a = in_basket(client, max_temp=60, color="white")
+    progs = client.get("/api/programs").json()
+    quick = next(p for p in progs if p["name"] == "Snabbtvätt 30°")
+    r = client.post("/api/washes", json={"program_id": quick["id"], "garment_ids": [a["id"]], "temp": 60, "spin": 1200})
+    assert r.status_code == 201
+    assert r.json()["temp"] == 30
+
+
+def test_program_too_hot_for_garments_400(client, now):
+    a = in_basket(client, max_temp=40)
+    progs = client.get("/api/programs").json()
+    hot = next(p for p in progs if p["name"] == "Bomull 60°")
+    r = client.post("/api/washes", json={"program_id": hot["id"], "garment_ids": [a["id"]], "temp": 40, "spin": 1200})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Programmet är för varmt för plaggen."

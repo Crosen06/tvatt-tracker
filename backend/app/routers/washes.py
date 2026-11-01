@@ -56,15 +56,21 @@ async def start_wash(request):
         ids = sorted(set(body.garment_ids))
         marks = ",".join("?" * len(ids))
         found = conn.execute(
-            f"SELECT COUNT(*) FROM garment WHERE id IN ({marks}) AND archived=0 AND in_basket=1", ids
-        ).fetchone()[0]
-        if found != len(ids):
+            f"SELECT COUNT(*), MIN(max_temp), MIN(max_spin) FROM garment "
+            f"WHERE id IN ({marks}) AND archived=0 AND in_basket=1",
+            ids,
+        ).fetchone()
+        if found[0] != len(ids):
             raise HTTPException(400, "Några plagg ligger inte i tvättkorgen längre.")
+        max_temp, max_spin = found[1], found[2]
+        if prog["temp"] > max_temp:
+            raise HTTPException(400, "Programmet är för varmt för plaggen.")
+        spin = min(body.spin, max_spin) if body.spin is not None else max_spin
         ends = now + timedelta(minutes=prog["duration_min"])
         cur = conn.execute(
             "INSERT INTO wash (program_id, name, duration_min, temp, spin, started_at, ends_at, status) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, 'running')",
-            (prog["id"], prog["name"], prog["duration_min"], body.temp, body.spin, clock.to_iso(now), clock.to_iso(ends)),
+            (prog["id"], prog["name"], prog["duration_min"], prog["temp"], spin, clock.to_iso(now), clock.to_iso(ends)),
         )
         conn.executemany("INSERT INTO wash_item (wash_id, garment_id) VALUES (?, ?)", [(cur.lastrowid, g) for g in ids])
         w = conn.execute("SELECT * FROM wash WHERE id=?", (cur.lastrowid,)).fetchone()

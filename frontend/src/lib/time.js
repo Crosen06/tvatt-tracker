@@ -34,3 +34,12 @@ export function formatRemaining(ms) {
 
 const clockFmt = new Intl.DateTimeFormat("sv-SE", { hour: "2-digit", minute: "2-digit" });
 export const formatClock = (ms) => clockFmt.format(new Date(ms));
+
+export function formatShort(ms) {
+  if (ms <= 0) return "Klar";
+  const totalSec = Math.ceil(ms / 1000);
+  if (totalSec < 60) return `${totalSec} s`;
+  const min = Math.ceil(totalSec / 60);
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
+}
