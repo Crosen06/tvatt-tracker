@@ -28,7 +28,7 @@ IMAGE_KEYS = ("image", "imageUrl", "imageURL", "img", "thumbnail", "picture")
 
 
 def search_url(q: str) -> str:
-    return f"{BASE}/recept/?q={quote_plus(q.strip())}"
+    return f"{BASE}/recept/?q={quote_plus(' '.join(q.lower().split()))}"
 
 
 def _absolute(href: str) -> str | None:

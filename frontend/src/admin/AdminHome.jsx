@@ -18,13 +18,21 @@ const PantryIcon = () => (
   </svg>
 );
 
+const BookIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5Z" />
+    <path d="M4 19a2 2 0 0 1 2-2h13M9 7h6" />
+  </svg>
+);
+
 export default function AdminHome() {
-  const { garments, programs, items: pantry } = useStore();
+  const { garments, programs, items: pantry, recipes } = useStore();
   const items = [
     { to: "/admin/ny", icon: <CameraIcon />, title: "Lägg till plagg", sub: "Fota och tagga ett nytt plagg" },
     { to: "/admin/plagg", icon: <BasketIcon />, title: "Alla plagg", sub: plural(garments.length, "plagg", "plagg") },
     { to: "/admin/program", icon: <TimerIcon />, title: "Tvättprogram", sub: `${plural(programs.length, "program", "program")} och hur långa de är` },
     { to: "/admin/varor", icon: <PantryIcon />, title: "Varor", sub: `${plural(pantry.length, "vara", "varor")} i skafferiet` },
+    { to: "/admin/recept", icon: <BookIcon />, title: "Recept", sub: `${plural(recipes.length, "recept", "recept")} · nytt eller från länk` },
     { to: "/admin/installningar", icon: <GearIcon />, title: "Inställningar", sub: "Personer, tvättregler och kök" },
   ];
   return (

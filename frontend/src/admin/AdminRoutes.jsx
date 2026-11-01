@@ -6,6 +6,9 @@ import Programs from "./Programs.jsx";
 import Settings from "./Settings.jsx";
 import ItemEdit from "../kitchen/admin/ItemEdit.jsx";
 import ItemList from "../kitchen/admin/ItemList.jsx";
+import RecipeEdit from "../kitchen/admin/RecipeEdit.jsx";
+import RecipeImport from "../kitchen/admin/RecipeImport.jsx";
+import RecipeList from "../kitchen/admin/RecipeList.jsx";
 
 export default function AdminRoutes({ route }) {
   switch (route.path) {
@@ -19,9 +22,16 @@ export default function AdminRoutes({ route }) {
       return <Settings />;
     case "/admin/varor":
       return <ItemList />;
+    case "/admin/recept":
+      return <RecipeList />;
+    case "/admin/recept/ny":
+      return <RecipeEdit key="new" />;
+    case "/admin/recept/import":
+      return <RecipeImport />;
     default:
       if (route.path.startsWith("/admin/plagg/")) return <GarmentEdit id={route.params.id} />;
       if (route.path.startsWith("/admin/varor/")) return <ItemEdit id={route.params.id} />;
+      if (route.path.startsWith("/admin/recept/")) return <RecipeEdit key={route.params.id} id={route.params.id} />;
       return <AdminHome />;
   }
 }

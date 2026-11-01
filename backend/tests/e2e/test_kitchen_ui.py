@@ -1,6 +1,12 @@
 """Browser checks of the Kök section (kiosk 800×480 and phone 390×844)."""
 
+import shutil
+import subprocess
+import sys
 import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +15,52 @@ pw = pytest.importorskip("playwright.sync_api")
 from tests.e2e.test_ui import (  # noqa: E402,F401  (fixtures are used by name)
     KIOSK, PHONE, _finish_soon, _start_wash, add_garment, api, browser, new_page, server, shot,
 )
+
+
+FIX = Path(__file__).resolve().parents[1] / "kitchen" / "fixtures"
+BACKEND = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture
+def kserver(tmp_path):
+    """Like `server`, but with fake internet (TVATT_FAKE_FETCH_DIR) and a fake camera folder."""
+    from tests.e2e.test_ui import _free_port
+
+    fake, cam, data = tmp_path / "fake", tmp_path / "cam", tmp_path / "data"
+    fake.mkdir()
+    cam.mkdir()
+    port = _free_port()
+    env = {"TVATT_DATA": str(data), "PATH": "/usr/bin:/bin", "TVATT_FAKE_FETCH_DIR": str(fake), "TVATT_FAKE_CAMERA": str(cam)}
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "--factory", "app.main:create_app", "--port", str(port)],
+        cwd=BACKEND, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(80):
+        try:
+            urllib.request.urlopen(base + "/api/health")
+            break
+        except OSError:
+            time.sleep(0.1)
+    yield {"base": base, "db": data / "tvatt.db", "fake": fake, "cam": cam}
+    proc.terminate()
+    proc.wait(5)
+
+
+def fake_page(srv, url, fixture):
+    from app.kitchen.fetch import fake_name
+
+    shutil.copy(FIX / fixture, srv["fake"] / f"{fake_name(url)}.html")
+
+
+def post_form(base, path, fields):
+    data = urllib.parse.urlencode(fields).encode()
+    with urllib.request.urlopen(urllib.request.Request(base + path, data=data, method="POST")) as r:
+        return __import__("json").load(r)
+
+
+def add_recipe(base, title, ingredients, steps="Laga maten."):
+    return post_form(base, "/api/recipes", {"title": title, "ingredients": ingredients, "steps": steps, "servings": "4"})
 
 
 def item(base, name):
@@ -163,4 +215,141 @@ def test_phone_item_edit(server, browser):
     pg.goto(base + "/#/kok/skafferi")
     pw.expect(pg.get_by_role("button", name="Mellanmjölk, Slut")).to_be_visible()
     assert no_hscroll(pg)
+    assert errors == []
+
+
+# ---------- recipes ----------
+
+def test_recipe_suggestions_and_missing_to_list(server, browser):
+    base = server["base"]
+    set_item(base, "Pasta", status="in_stock")
+    add_recipe(base, "Pasta med grädde", "400 g pasta\n2 dl vispgrädde")
+    add_recipe(base, "Bara pasta", "400 g pasta\nsalt")
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/recept")
+    cards = pg.locator(".recipe-card")
+    pw.expect(cards.first).to_contain_text("Bara pasta")
+    pw.expect(cards.first).to_contain_text("Allt finns hemma")
+    pw.expect(cards.nth(1)).to_contain_text("Saknar 1: vispgrädde")
+    shot(pg, "kiosk-recipes")
+    cards.nth(1).click()
+    pw.expect(pg.get_by_role("heading", name="Pasta med grädde")).to_be_visible()
+    shot(pg, "kiosk-recipe-view")
+    pg.get_by_role("button", name="Lägg saknade på listan").click()
+    pw.expect(pg.get_by_text("1 vara lades på inköpslistan")).to_be_visible()
+    pg.get_by_role("button", name="Handla").click()
+    pw.expect(pg.locator(".shop-list")).to_contain_text("Grädde")
+    pw.expect(pg.locator(".shop-list")).to_contain_text("till Pasta med grädde")
+    assert no_hscroll(pg)
+    assert errors == []
+
+
+def test_link_unknown_ingredient(server, browser):
+    base = server["base"]
+    r = add_recipe(base, "Halloumisallad", "1 st halloumi")
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + f"/?kiosk=1#/kok/recept/{r['id']}")
+    pg.get_by_role("button", name="1 st halloumi, okänd vara").click()
+    kb = pg.locator(".osk")
+    for ch in "ost":
+        kb.get_by_role("button", name=ch, exact=True).click()
+    shot(pg, "kiosk-link-ingredient")
+    pg.locator(".sheet").get_by_role("button", name="Ost", exact=True).click()
+    pw.expect(pg.get_by_role("button", name="1 st halloumi, saknas")).to_be_visible()
+    d = api(base, "GET", f"/api/recipes/{r['id']}")
+    assert d["ingredients"][0]["item_id"] == item(base, "Ost")["id"]
+    assert errors == []
+
+
+def test_cooked_marks_out(server, browser):
+    base = server["base"]
+    set_item(base, "Grädde", status="in_stock")
+    r = add_recipe(base, "Gräddsås", "2 dl vispgrädde")
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + f"/?kiosk=1#/kok/recept/{r['id']}")
+    pg.get_by_role("button", name="Vi lagade den").click()
+    row = pg.locator(".cooked-row", has_text="Grädde")
+    row.get_by_role("radio", name="Slut", exact=True).click()
+    pg.get_by_role("button", name="Klart").click()
+    pw.expect(pg.get_by_text("Grädde lades på inköpslistan").or_(pg.get_by_text("Smaklig måltid"))).to_be_visible()
+    time.sleep(0.3)
+    assert item(base, "Grädde")["status"] == "out"
+    assert api(base, "GET", f"/api/recipes/{r['id']}")["cooked_count"] == 1
+    assert errors == []
+
+
+def test_phone_create_and_import_recipe(kserver, browser):
+    base = kserver["base"]
+    url = "https://www.ica.se/recept/kramig-kycklinggryta-722668/"
+    fake_page(kserver, url, "ica_recipe.html")
+    errors = []
+    pg = new_page(browser, PHONE, errors)
+    pg.goto(base + "/#/admin")
+    pg.get_by_role("button", name="Recept").click()
+    pg.get_by_role("button", name="Nytt recept").click()
+    pg.get_by_label("Titel").fill("Omelett")
+    pg.get_by_label("Ingredienser").fill("3 ägg\n1 dl mjölk")
+    pg.get_by_label("Gör så här").fill("Vispa.\nStek.")
+    pg.get_by_role("button", name="Spara recept").click()
+    pw.expect(pg.get_by_text("Receptet är sparat.")).to_be_visible()
+    assert any(r["title"] == "Omelett" for r in api(base, "GET", "/api/recipes"))
+
+    pg.goto(base + "/#/admin/recept")
+    pg.get_by_role("button", name="Importera från länk").click()
+    pg.get_by_label("Länk till receptet").fill(url)
+    pg.get_by_role("button", name="Hämta recept").click()
+    pw.expect(pg.get_by_label("Titel")).to_have_value("Krämig kycklinggryta med curry")
+    shot(pg, "phone-recipe-imported")
+    assert any(r["source"] == "ica" for r in api(base, "GET", "/api/recipes"))
+    assert errors == []
+
+
+def test_ica_search_ui(kserver, browser):
+    base = kserver["base"]
+    fake_page(kserver, "https://www.ica.se/recept/?q=kyckling", "ica_search_itemlist.html")
+    fake_page(kserver, "https://www.ica.se/recept/kramig-kycklinggryta-722668/", "ica_recipe.html")
+    fake_page(kserver, "https://www.ica.se/recept/kyckling-i-ugn-713399/", "sections_recipe.html")
+    set_item(base, "Kyckling", status="in_stock")
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/recept")
+    pg.get_by_role("button", name="Sök på ICA").click()
+    pg.get_by_role("button", name="Kyckling", exact=True).click()
+    pg.get_by_role("button", name="Sök", exact=True).click()
+    card = pg.locator(".ica-card", has_text="Krämig kycklinggryta")
+    pw.expect(card).to_contain_text("har 1 av 6")
+    shot(pg, "kiosk-ica")
+    card.get_by_role("button", name="Spara").click()
+    pw.expect(card.get_by_role("button", name="Öppna")).to_be_visible()
+    assert any(r["source"] == "ica" for r in api(base, "GET", "/api/recipes"))
+    assert errors == []
+
+
+def test_ica_search_offline_message(kserver, browser):
+    base = kserver["base"]
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/ica")
+    pg.get_by_label("Sök recept").click()
+    kb = pg.locator(".osk")
+    for ch in "soppa":
+        kb.get_by_role("button", name=ch, exact=True).click()
+    pg.get_by_role("button", name="Sök", exact=True).click()
+    pw.expect(pg.get_by_text("Kunde inte nå www.ica.se")).to_be_visible()
+    assert errors == []
+
+
+def test_link_ingredient_to_new_item(server, browser):
+    base = server["base"]
+    r = add_recipe(base, "Grillad halloumi", "1 st halloumi")
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + f"/?kiosk=1#/kok/recept/{r['id']}")
+    pg.get_by_role("button", name="1 st halloumi, okänd vara").click()
+    pg.get_by_role("button", name="Ny vara ”Halloumi”").click()
+    pw.expect(pg.get_by_role("button", name="1 st halloumi, saknas")).to_be_visible()
+    assert item(base, "Halloumi")["status"] == "out"
     assert errors == []

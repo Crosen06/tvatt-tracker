@@ -12,6 +12,7 @@ def page(name):
 def test_search_url():
     assert ica.search_url("kyckling curry") == "https://www.ica.se/recept/?q=kyckling+curry"
     assert ica.search_url("ägg") == "https://www.ica.se/recept/?q=%C3%A4gg"
+    assert ica.search_url("  Kyckling  Ris ") == "https://www.ica.se/recept/?q=kyckling+ris"
 
 
 def test_is_recipe_url():

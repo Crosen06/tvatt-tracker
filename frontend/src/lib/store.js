@@ -15,6 +15,7 @@ let state = {
   toast: null,
   items: [],
   shopping: { entries: [], frequent: [] },
+  recipes: [],
 };
 const listeners = new Set();
 
@@ -43,6 +44,7 @@ const loaders = {
   suggestions: async () => set({ suggestions: await api.get("/api/suggestions") }),
   items: async () => set({ items: await api.get("/api/items") }),
   shopping: async () => set({ shopping: await api.get("/api/shopping") }),
+  recipes: async () => set({ recipes: await api.get("/api/recipes") }),
   wash: async () => {
     const r = await api.get("/api/washes/current");
     set({ wash: r.wash, serverOffsetMs: Date.parse(r.server_now) - Date.now() });
@@ -55,8 +57,9 @@ const TOPICS = {
   settings: ["settings", "suggestions"],
   garments: ["garments", "suggestions"],
   wash: ["wash", "suggestions"],
-  items: ["items", "shopping"],
+  items: ["items", "shopping", "recipes"],
   shopping: ["shopping", "items"],
+  recipes: ["recipes"],
 };
 
 const pending = new Set();
