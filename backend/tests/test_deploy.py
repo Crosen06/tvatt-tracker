@@ -90,7 +90,7 @@ def update_env(tmp_path):
     log = tmp_path / "calls.log"
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name in ("git", "systemctl", "pkill", "pip"):
+    for name in ("git", "systemctl", "pkill", "pip", "curl"):
         exe = bin_dir / name
         exe.write_text(f'#!/bin/sh\necho "{name} $@" >> "{log}"\n')
         exe.chmod(0o755)
@@ -115,6 +115,7 @@ def test_update_reinstalls_changed_unit(tmp_path):
     text = unit.read_text()
     assert "SupplementaryGroups=video" in text
     assert "Environment=TVATT_DATA=/home/pi/min-data" in text  # keeps the data dir it was installed with
+    assert "EnvironmentFile=-/home/pi/min-data/tvatt.env" in text  # own settings survive updates
     assert "@REPO@" not in text
 
     log.write_text("")
@@ -163,3 +164,52 @@ def test_update_installs_optional_zxing(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "zxing-cpp" in log.read_text()
     assert "zxing-cpp" in (DEPLOY / "install.sh").read_text()
+
+
+def test_update_fetches_model_but_survives_failure(tmp_path):
+    env, log = update_env(tmp_path)
+    r = run("update.sh", env)
+    assert r.returncode == 0, r.stderr
+    assert "curl" in log.read_text()  # the stub writes nothing, so the checksum fails …
+    assert "Bildmodellen kunde inte hämtas" in r.stdout  # … and the update still finishes
+
+
+def _model_env(tmp_path, content: bytes, sha: str | None = None):
+    import hashlib
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "curl.log"
+    src = tmp_path / "model.bin"
+    src.write_bytes(content)
+    curl = bin_dir / "curl"
+    curl.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\nwhile [ "$1" != "-o" ]; do shift; done\ncp "{src}" "$2"\n')
+    curl.chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path), "TVATT_MODEL_SHA256": sha or hashlib.sha256(content).hexdigest()}
+    return env, log
+
+
+def test_get_model_downloads_once(tmp_path):
+    data = tmp_path / "data"
+    env, log = _model_env(tmp_path, b"model bytes")
+    r = run("get-model.sh", env, str(data))
+    assert r.returncode == 0, r.stderr
+    assert (data / "models" / "mobilenetv2.onnx").read_bytes() == b"model bytes"
+    r = run("get-model.sh", env, str(data))
+    assert r.returncode == 0 and "finns redan" in r.stdout
+    assert len(log.read_text().splitlines()) == 1  # not downloaded again
+    assert [p.name for p in (data / "models").iterdir()] == ["mobilenetv2.onnx"]
+
+
+def test_get_model_refuses_wrong_checksum(tmp_path):
+    data = tmp_path / "data"
+    env, _ = _model_env(tmp_path, b"tampered", sha="0" * 64)
+    r = run("get-model.sh", env, str(data))
+    assert r.returncode == 1 and "fel kontrollsumma" in r.stderr
+    assert list((data / "models").iterdir()) == []  # no model and no temp file left
+
+
+def test_model_checksum_matches_app():
+    from app.kitchen import vision
+
+    assert vision.MODEL_SHA256 in (DEPLOY / "get-model.sh").read_text()

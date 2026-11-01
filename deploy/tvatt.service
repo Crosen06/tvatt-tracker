@@ -10,6 +10,9 @@ User=@USER@
 SupplementaryGroups=video
 WorkingDirectory=@REPO@/backend
 Environment=TVATT_DATA=@DATA@
+# Own settings (e.g. TVATT_CAMERA=1, TVATT_CAMERA_SIZE=1280x720, TVATT_VISION_SURE=0.85), one per line.
+# Kept in the data folder so updates do not overwrite them; the file is optional.
+EnvironmentFile=-@DATA@/tvatt.env
 ExecStart=@REPO@/.venv/bin/python -m uvicorn --factory app.main:create_app --host 0.0.0.0 --port 80 --timeout-graceful-shutdown 3
 # Allow binding port 80 without running as root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE

@@ -79,7 +79,35 @@ cd ~/tvatt-tracker
 .venv/bin/python scripts/camera_test.py
 ```
 
-Skriptet visar upplösning, bildformat, autofokus och skärpa, försöker läsa en streckkod i 15 sekunder och sparar den skarpaste bilden i `~/tvatt-data/kamera-test.jpg`. Om datorn blir för långsam med full HD kan du sänka upplösningen med raden `Environment=TVATT_CAMERA_SIZE=1280x720` i `/etc/systemd/system/tvatt.service`.
+Skriptet visar upplösning, bildformat, autofokus och skärpa, försöker läsa en streckkod i 15 sekunder och sparar den skarpaste bilden i `~/tvatt-data/kamera-test.jpg`. Om datorn blir för långsam med full HD kan du sänka upplösningen med raden `TVATT_CAMERA_SIZE=1280x720` i filen `~/tvatt-data/tvatt.env` (se [Egna inställningar](#egna-inställningar)).
+
+### Känna igen varor på bilden
+Kameran kan också känna igen varor på hur de ser ut, utan streckkod. Det är bra för frukt, bröd och sådant som är svårt att skanna. `./deploy/update.sh` hämtar bildmodellen (14 MB) till `~/tvatt-data/models/`; utan den fungerar streckkoderna som vanligt och knapparna nedan syns inte.
+
+1. **Lär in en vara:** tryck **Skanna** → **Lär in**, välj varan (eller **Ny vara**) och vrid den långsamt framför kameran. Appen tar 8 bilder på ungefär 6 sekunder.
+2. **Känna igen:** håll upp varan stilla i mitten av bilden. Är appen säker visas varukortet direkt, med de två näst bästa förslagen och **Fel vara?** ovanför knapparna. Är den osäker får du välja bland tre förslag. **Vad är det här?** visar förslag direkt, även när appen är osäker.
+3. **Appen lär sig själv:** varje gång en streckkod läses, och varje gång du väljer rätt vara bland förslagen, sparas bilden. Ju mer ni använder den, desto bättre blir den.
+4. **Rätta fel:** i mobilen under **Hantera → Inlärda bilder** ser du bilderna per vara. Tryck på en bild som visar fel vara för att ta bort den.
+
+Tips: lär in och skanna på samma ställe och i samma ljus, och håll varan så att den fyller rutan i mitten. Nästan likadana förpackningar (mellan- och standardmjölk av samma märke) kan blandas ihop, så titta på namnet innan du trycker.
+
+**Finjustera:** kör `.venv/bin/python scripts/camera_test.py --recognize --seconds 30` (stäng skanningen i appen först) och håll upp några varor. Varje sekund skrivs de tre mest lika varorna ut med poäng mellan 0 och 1. Som standard räknas ≥ 0,80 som säker träff (och minst 0,05 före tvåan) och ≥ 0,65 som osäker. Ser rätt varor ut att få till exempel 0,9 och fel varor 0,7 kan du skärpa gränserna i `~/tvatt-data/tvatt.env`:
+
+```
+TVATT_VISION_SURE=0.85
+TVATT_VISION_MAYBE=0.75
+```
+
+### Egna inställningar
+Inställningar som inte finns i appen skrivs i filen `~/tvatt-data/tvatt.env`, en per rad, och gäller efter `sudo systemctl restart tvatt`. Filen skrivs inte över vid uppdatering.
+
+| Rad | Vad den gör |
+|---|---|
+| `TVATT_CAMERA=1` | Använd en annan kamera än den första |
+| `TVATT_CAMERA_SIZE=1280x720` | Lägre kameraupplösning om Pi:n blir för långsam |
+| `TVATT_VISION_SURE=0.85` | Poäng som krävs för säker träff |
+| `TVATT_VISION_MAYBE=0.75` | Poäng som krävs för att visa förslag |
+| `TVATT_VISION_MARGIN=0.05` | Hur mycket bästa varan måste slå tvåan för säker träff |
 
 ### Kontrollera att allt fungerar på Pi:n
 Kameran, ICA och Open Food Facts kunde inte provas när appen byggdes, så kör det här efter installationen:
@@ -116,7 +144,9 @@ sudo systemctl start tvatt
 | Skärmen visar inte appen efter start | Kör `systemctl status tvatt` och `journalctl -u tvatt -n 50`. Startar inte webbläsaren, prova `~/tvatt-tracker/deploy/kiosk.sh` i en terminal. |
 | Klockan visar fel tid | `sudo timedatectl set-timezone Europe/Stockholm` |
 | "Bildformatet stöds inte" | Ta bilden direkt med kameran i stället för att välja en fil. |
-| "Ingen kamera hittades" | Kontrollera att webbkameran sitter i och syns med `ls /dev/video*`. Starta om appen med `sudo systemctl restart tvatt`. Har du flera kameror kan du välja en annan med raden `Environment=TVATT_CAMERA=1` i `/etc/systemd/system/tvatt.service`. |
+| "Ingen kamera hittades" | Kontrollera att webbkameran sitter i och syns med `ls /dev/video*`. Starta om appen med `sudo systemctl restart tvatt`. Har du flera kameror kan du välja en annan med raden `TVATT_CAMERA=1` i `~/tvatt-data/tvatt.env`. |
+| Varan känns inte igen på bilden | Lär in fler bilder med **Lär in**, i samma ljus som när ni skannar. Visar förslagen ofta fel vara: ta bort felaktiga bilder under **Hantera → Inlärda bilder** och prova `camera_test.py --recognize` (se [Känna igen varor på bilden](#känna-igen-varor-på-bilden)). |
+| "Bildigenkänningen är inte installerad" | Kör `./deploy/get-model.sh` i `~/tvatt-tracker`. Den hämtar bildmodellen och kontrollerar den. Starta sedan om appen med `sudo systemctl restart tvatt`. |
 | Streckkoden läses inte | Kör `.venv/bin/python scripts/camera_test.py` och titta på bilden `~/tvatt-data/kamera-test.jpg`. Är strecken suddiga har kameran fast fokus: håll varan längre bort (30–40 cm). Är de små och kantiga ger kameran för låg upplösning. Mer ljus hjälper alltid. Det går också att trycka **Skriv koden**. |
 | "Kunde inte nå ica.se" | Pi:n behöver internet för ICA-sök, import och Open Food Facts. Kör `scripts/check_kitchen.py`. Visar ICA-sök ✗ fast internet fungerar har ica.se troligen ändrat sin sida; import via länk fungerar ofta ändå. |
 | Skärmen släcks aldrig | `sudo raspi-config` → Display Options → Screen Blanking → på. |
@@ -125,7 +155,7 @@ sudo systemctl start tvatt
 
 - Backend: Python, [Starlette](https://www.starlette.io/) och SQLite i `backend/`. Starta med `scripts/dev.sh` (port 8000, data i `/tmp/tvatt-dev`). Lägg in exempelplagg med `python scripts/sample_data.py`.
 - Gränssnitt: React 19 i `frontend/`, byggs med esbuild till `backend/app/static/` (som checkas in, så att Pi:n aldrig behöver Node). Bygg med `cd frontend && npm install && npm run build`.
-- Köket: ren logik i `backend/app/kitchen/` (matchning av ingredienser, receptimport, ICA, streckkoder, kameran), API i `backend/app/routers/kitchen_*.py`, gränssnitt i `frontend/src/kitchen/`. För tester utan nät och kamera finns `TVATT_FAKE_FETCH_DIR` (sparade sidor) och `TVATT_FAKE_CAMERA` (en mapp med bilder som "kameran" visar).
+- Köket: ren logik i `backend/app/kitchen/` (matchning av ingredienser, receptimport, ICA, streckkoder, kameran), API i `backend/app/routers/kitchen_*.py`, gränssnitt i `frontend/src/kitchen/`. För tester utan nät och kamera finns `TVATT_FAKE_FETCH_DIR` (sparade sidor) och `TVATT_FAKE_CAMERA` (en mapp med bilder som "kameran" visar). `TVATT_FAKE_VISION=1` slår på bildigenkänningen med en enkel färgjämförelse i stället för den riktiga bildmodellen.
 - Tester: `cd backend && pip install -r requirements-dev.txt && python -m pytest`. Webbläsartesterna i `tests/e2e` hoppas över om Playwright saknas.
 - Design och plan: `docs/specs/` och `docs/plans/`.
 

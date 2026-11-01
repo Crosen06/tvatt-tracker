@@ -14,6 +14,8 @@ git pull --ff-only
 DATA_DIR="$(sed -n 's/^Environment=TVATT_DATA=//p' "$UNIT" 2>/dev/null | head -n1 || true)"
 DATA_DIR="${DATA_DIR:-${TVATT_DATA:-$HOME/tvatt-data}}"
 "$REPO/deploy/install-service.sh" "$DATA_DIR" >/dev/null
+# Image model for recognising pantry items. Optional: barcodes work without it.
+"$REPO/deploy/get-model.sh" "$DATA_DIR" || echo "Bildmodellen kunde inte hämtas; bildigenkänningen i köket är avstängd tills den finns."
 
 sudo systemctl restart tvatt.service
 # kiosk.sh restarts Chromium by itself, so closing it loads the new interface.

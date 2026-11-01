@@ -54,6 +54,9 @@ python3 -m venv "$REPO/.venv"
 # Optional, better barcode reader. Scanning still works with OpenCV if it cannot be installed.
 "$REPO/.venv/bin/pip" install -q zxing-cpp || echo "zxing-cpp kunde inte installeras; streckkoder läses med OpenCV i stället."
 mkdir -p "$DATA_DIR"
+# Image model for recognising pantry items. Optional: barcodes work without it.
+chmod +x "$REPO/deploy/get-model.sh"
+"$REPO/deploy/get-model.sh" "$DATA_DIR" || echo "Bildmodellen kunde inte hämtas; bildigenkänningen i köket är avstängd tills den finns."
 
 step "Installerar tjänsten tvatt"
 chmod +x "$REPO/deploy/install-service.sh"

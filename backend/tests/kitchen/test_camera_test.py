@@ -56,3 +56,42 @@ def test_camera_test_warns_about_low_resolution(tmp_path, monkeypatch, capsys):
     assert mod.main(["--seconds", "0.2", "--out", str(tmp_path / "b.jpg")]) == 1
     text = capsys.readouterr().out
     assert "bara 640×480" in text and "Ingen streckkod" in text
+
+
+def test_camera_test_recognize_prints_best_matches(tmp_path, monkeypatch, capsys):
+    from app.kitchen import vision
+    from app.main import create_app
+    from tests.kitchen.vision_images import scene
+
+    monkeypatch.setenv("TVATT_FAKE_VISION", "1")
+    app = create_app(tmp_path / "data")
+    svc = app.state.vision
+    emb = vision.HistogramEmbedder()
+    conn = __import__("app.db", fromlist=["connect"]).connect(app.state.db_path)
+    ids = {n: conn.execute("SELECT id FROM item WHERE name=?", (n,)).fetchone()[0] for n in ("Banan", "Kaffe")}
+    conn.close()
+    for name, what in (("Banan", "banana"), ("Kaffe", "coffee")):
+        svc._save(ids[name], emb.embed(vision.model_input(scene(what))), b"jpeg", "learn")
+
+    class BananaCam(FakeCam):
+        def read(self):
+            return scene("banana", seed=3)
+
+    monkeypatch.setattr(scanner, "CvSource", BananaCam)
+    mod = load_script()
+    monkeypatch.setattr(mod, "release_app_camera", lambda base: None)
+    rc = mod.main(["--seconds", "1.2", "--recognize", "--data", str(tmp_path / "data"), "--out", str(tmp_path / "b.jpg")])
+    text = capsys.readouterr().out
+    assert rc == 0
+    assert "histogram-v1" in text and "2 inlärda bilder av 2 varor" in text
+    line = next(l for l in text.splitlines() if l.startswith("  Banan"))
+    assert "Kaffe" in line and "säker" in line
+
+
+def test_camera_test_recognize_without_model(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("TVATT_FAKE_VISION", raising=False)
+    monkeypatch.delenv("TVATT_VISION_MODEL", raising=False)
+    monkeypatch.setattr(scanner, "CvSource", FakeCam)
+    mod = load_script()
+    assert mod.main(["--recognize", "--data", str(tmp_path)]) == 1
+    assert "inte installerad" in capsys.readouterr().out
