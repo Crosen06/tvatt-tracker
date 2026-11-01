@@ -202,3 +202,23 @@ class CookedIn(Strict):
 
 class ImportIn(Strict):
     url: str = Field(min_length=8, max_length=2000, pattern=r"^https?://\S+$")
+
+
+class NewItemIn(Strict):
+    name: str = Field(max_length=40)
+    category: Category
+
+    _n = field_validator("name")(lambda cls, v: _clean_name(v))
+
+
+class BarcodeIn(Strict):
+    code: str = Field(pattern=r"^\d{8}$|^\d{12,13}$")
+    item_id: int | None = None
+    new_item: NewItemIn | None = None
+    product_name: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def _one_of(self):
+        if (self.item_id is None) == (self.new_item is None):
+            raise ValueError("item_id or new_item")
+        return self

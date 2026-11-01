@@ -6,12 +6,13 @@ import TopBar from "./components/TopBar.jsx";
 import WashTab from "./components/WashTab.jsx";
 import Pantry from "./kitchen/Pantry.jsx";
 import Recipes from "./kitchen/Recipes.jsx";
+import ScanSheet from "./kitchen/ScanSheet.jsx";
 import Shopping from "./kitchen/Shopping.jsx";
 import { useRoute } from "./lib/router.js";
 import { clearToast, connectEvents, loadAll, useStore } from "./lib/store.js";
 
 export default function App() {
-  const { loaded, online, people, toast } = useStore();
+  const { loaded, online, people, toast, scanOpen } = useStore();
   const route = useRoute();
 
   useEffect(() => {
@@ -51,6 +52,7 @@ export default function App() {
           )}
         </div>
       )}
+      {scanOpen && <ScanSheet />}
       <DoneOverlay />
     </div>
   );

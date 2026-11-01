@@ -1,5 +1,5 @@
 import { isKiosk, navigate, section, switchSection } from "../lib/router.js";
-import { useStore } from "../lib/store.js";
+import { openScan, useStore } from "../lib/store.js";
 import { formatClock, formatShort, progress, remainingMs, useNow } from "../lib/time.js";
 import { CameraIcon, GearIcon } from "./Icons.jsx";
 import Porthole from "./Porthole.jsx";
@@ -66,6 +66,12 @@ export default function TopBar({ route }) {
           <button className="btn btn-primary add-btn" onClick={() => navigate("/admin/ny")}>
             <CameraIcon width={20} height={20} />
             Lägg till plagg
+          </button>
+        )}
+        {isKiosk && kitchen && (
+          <button className="btn scan-btn" onClick={openScan}>
+            <CameraIcon width={22} height={22} />
+            Skanna
           </button>
         )}
         <span className="clock">{formatClock(now)}</span>

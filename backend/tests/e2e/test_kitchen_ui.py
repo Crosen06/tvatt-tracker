@@ -353,3 +353,116 @@ def test_link_ingredient_to_new_item(server, browser):
     pw.expect(pg.get_by_role("button", name="1 st halloumi, saknas")).to_be_visible()
     assert item(base, "Halloumi")["status"] == "out"
     assert errors == []
+
+
+# ---------- scanning ----------
+
+CODE_A = "4006381333931"
+CODE_B = "7310865004703"
+
+
+def show_code(srv, code):
+    import cv2
+
+    from tests.kitchen.barcode_images import ean13_frame
+
+    cv2.imwrite(str(srv["cam"] / f"{code}.png"), ean13_frame(code))
+
+
+def test_scan_known_item_to_pantry(kserver, browser):
+    base = kserver["base"]
+    api(base, "POST", "/api/barcodes", {"code": CODE_A, "item_id": item(base, "Mjölk")["id"]})
+    api(base, "POST", "/api/shopping", {"item_id": item(base, "Mjölk")["id"]})
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/skafferi")
+    pg.get_by_role("button", name="Skanna").click()
+    pw.expect(pg.get_by_text("Håll streckkoden mot kameran")).to_be_visible()
+    show_code(kserver, CODE_A)
+    card = pg.locator(".scan-result")
+    pw.expect(card.get_by_role("heading", name="Mjölk")).to_be_visible(timeout=10000)
+    shot(pg, "kiosk-scan-known")
+    card.get_by_role("button", name="In i skafferiet").click()
+    pw.expect(pg.get_by_text("Mjölk finns nu i skafferiet")).to_be_visible()
+    time.sleep(0.3)
+    assert item(base, "Mjölk")["status"] == "in_stock"
+    assert api(base, "GET", "/api/shopping")["entries"] == []  # bought, so off the list
+    pg.get_by_role("button", name="Klar", exact=True).click()
+    pw.expect(pg.locator(".scan")).to_have_count(0)
+    for _ in range(50):  # the camera is stopped right after the sheet closes
+        if api(base, "GET", "/api/scan/last")["running"] is False:
+            break
+        time.sleep(0.1)
+    assert api(base, "GET", "/api/scan/last")["running"] is False
+    assert errors == []
+
+
+def test_scan_unknown_new_item(kserver, browser):
+    import json as _json
+
+    from app.kitchen.fetch import fake_name
+    from app.kitchen.products import OFF_URL
+
+    base = kserver["base"]
+    (kserver["fake"] / f"{fake_name(OFF_URL.format(code=CODE_B))}.json").write_text(_json.dumps(
+        {"status": 1, "product": {"product_name": "Havredryck", "brands": "Oatly", "quantity": "1 l", "categories_tags": ["en:beverages"]}}
+    ))
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/skafferi")
+    pg.get_by_role("button", name="Skanna").click()
+    show_code(kserver, CODE_B)
+    card = pg.locator(".scan-result")
+    pw.expect(card).to_contain_text("Oatly Havredryck 1 l", timeout=10000)
+    shot(pg, "kiosk-scan-unknown")
+    card.get_by_role("button", name="Ny vara").click()
+    pw.expect(pg.get_by_label("Namn på varan")).to_have_value("Havredryck")
+    pw.expect(pg.get_by_role("radio", name="Dryck")).to_have_attribute("aria-checked", "true")
+    pg.get_by_role("button", name="Spara vara").click()
+    pw.expect(card.get_by_role("heading", name="Havredryck")).to_be_visible()
+    card.get_by_role("button", name="På inköpslistan").click()
+    pw.expect(pg.get_by_text("Havredryck lades på inköpslistan")).to_be_visible()
+    hv = item(base, "Havredryck")
+    assert hv["on_list"] is True and hv["category"] == "Dryck"
+    assert api(base, "GET", f"/api/barcodes/{CODE_B}")["item"]["id"] == hv["id"]
+    assert errors == []
+
+
+def test_manual_code_entry(kserver, browser):
+    base = kserver["base"]
+    api(base, "POST", "/api/barcodes", {"code": CODE_A, "item_id": item(base, "Smör")["id"]})
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/handla")
+    pg.get_by_role("button", name="Skanna").click()
+    pg.get_by_role("button", name="Skriv koden").click()
+    pad = pg.locator(".osk-numeric")
+    for ch in CODE_A:
+        pad.get_by_role("button", name=ch, exact=True).click()
+    pad.get_by_role("button", name="Klar").click()
+    card = pg.locator(".scan-result")
+    pw.expect(card.get_by_role("heading", name="Smör")).to_be_visible()
+    card.get_by_role("button", name="Slut", exact=True).click()
+    pw.expect(pg.get_by_text("Smör lades på inköpslistan")).to_be_visible()
+    assert errors == []
+
+
+def test_scan_without_camera_shows_error(server, browser):
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(server["base"] + "/?kiosk=1#/kok/skafferi")
+    pg.get_by_role("button", name="Skanna").click()
+    pw.expect(pg.get_by_text("Ingen kamera hittades")).to_be_visible(timeout=10000)
+    pw.expect(pg.get_by_role("button", name="Försök igen")).to_be_visible()
+    pw.expect(pg.get_by_role("button", name="Skriv koden")).to_be_visible()
+    shot(pg, "kiosk-scan-nocamera")
+    assert errors == []
+
+
+def test_no_scan_button_on_phone(server, browser):
+    errors = []
+    pg = new_page(browser, PHONE, errors)
+    pg.goto(server["base"] + "/#/kok/skafferi")
+    pw.expect(pg.get_by_role("button", name="Skafferi")).to_be_visible()
+    pw.expect(pg.get_by_role("button", name="Skanna")).to_have_count(0)
+    assert errors == []

@@ -24,6 +24,7 @@ class Product:
     brand: str | None
     quantity: str | None
     category: str
+    short_name: str = ""  # the product name alone, a good start for naming a new item
 
 
 def valid_gtin(code: str) -> bool:
@@ -58,7 +59,7 @@ def parse_off(data) -> Product | None:
         full = f"{brand} {full}"
     if quantity and quantity.lower() not in name.lower():
         full = f"{full} {quantity}"
-    return Product(name=full[:80], brand=brand, quantity=quantity, category=guess_category(p.get("categories_tags")))
+    return Product(name=full[:80], brand=brand, quantity=quantity, category=guess_category(p.get("categories_tags")), short_name=name[:40])
 
 
 def lookup(code: str) -> Product | None:

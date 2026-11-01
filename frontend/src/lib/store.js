@@ -16,6 +16,8 @@ let state = {
   items: [],
   shopping: { entries: [], frequent: [] },
   recipes: [],
+  scan: { seq: 0, code: null, error: null, running: false },
+  scanOpen: false,
 };
 const listeners = new Set();
 
@@ -45,6 +47,7 @@ const loaders = {
   items: async () => set({ items: await api.get("/api/items") }),
   shopping: async () => set({ shopping: await api.get("/api/shopping") }),
   recipes: async () => set({ recipes: await api.get("/api/recipes") }),
+  scan: async () => set({ scan: await api.get("/api/scan/last") }),
   wash: async () => {
     const r = await api.get("/api/washes/current");
     set({ wash: r.wash, serverOffsetMs: Date.parse(r.server_now) - Date.now() });
@@ -60,6 +63,7 @@ const TOPICS = {
   items: ["items", "shopping", "recipes"],
   shopping: ["shopping", "items"],
   recipes: ["recipes"],
+  scan: ["scan"],
 };
 
 const pending = new Set();
@@ -121,6 +125,9 @@ export function toast(message, kind = "error", action = null) {
 }
 
 export const clearToast = () => set({ toast: null });
+
+export const openScan = () => set({ scanOpen: true });
+export const closeScan = () => set({ scanOpen: false });
 
 export function patchGarmentLocal(garment) {
   set({ garments: state.garments.map((g) => (g.id === garment.id ? { ...g, ...garment } : g)) });

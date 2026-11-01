@@ -22,7 +22,7 @@ def test_parse_off_names():
     p = parse_off({"status": 1, "product": {
         "product_name_sv": "Mellanmjölk 1,5%", "product_name": "Milk", "brands": "Arla Ko,Arla",
         "quantity": "1 l", "categories_tags": ["en:dairies", "en:milks"]}})
-    assert p == Product(name="Arla Ko Mellanmjölk 1,5% 1 l", brand="Arla Ko", quantity="1 l", category="Kyl")
+    assert p == Product(name="Arla Ko Mellanmjölk 1,5% 1 l", brand="Arla Ko", quantity="1 l", category="Kyl", short_name="Mellanmjölk 1,5%")
     p = parse_off({"status": 1, "product": {"product_name": "Pasta Penne", "brands": "Barilla", "quantity": ""}})
     assert p.name == "Barilla Pasta Penne" and p.category == "Skafferi"
     p = parse_off({"status": 1, "product": {"product_name": "Arla Mjölk", "brands": "Arla"}})

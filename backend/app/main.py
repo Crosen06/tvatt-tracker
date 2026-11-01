@@ -1,5 +1,6 @@
 """Application factory. Run with: uvicorn --factory app.main:create_app"""
 
+import contextlib
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -11,7 +12,8 @@ from starlette.staticfiles import StaticFiles
 from app.config import resolve_data_dir
 from app.db import connect, init_db
 from app.events import EventBus
-from app.routers import events, garments, kitchen_items, kitchen_recipes, people, programs, settings, suggestions, washes
+from app.kitchen.scanner import Scanner, default_source_factory
+from app.routers import events, garments, kitchen_items, kitchen_recipes, kitchen_scan, people, programs, settings, suggestions, washes
 from app.web import http_error
 
 
@@ -40,7 +42,7 @@ async def spa(request):
     return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
 
-def create_app(data_dir: Path | None = None) -> Starlette:
+def create_app(data_dir: Path | None = None, camera_factory=None) -> Starlette:
     data_dir = resolve_data_dir(data_dir)
     (data_dir / "photos" / "thumb").mkdir(parents=True, exist_ok=True)
     db_path = data_dir / "tvatt.db"
@@ -59,12 +61,19 @@ def create_app(data_dir: Path | None = None) -> Starlette:
         *events.routes,
         *kitchen_items.routes,
         *kitchen_recipes.routes,
+        *kitchen_scan.routes,
         Route("/api/{path:path}", api_not_found, methods=["GET", "POST", "PATCH", "PUT", "DELETE"]),
         Mount("/photos", app=StaticFiles(directory=data_dir / "photos"), name="photos"),
         Route("/{path:path}", spa, methods=["GET", "HEAD"]),
     ]
-    app = Starlette(routes=routes, exception_handlers={HTTPException: http_error})
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        yield
+        app.state.scanner.stop()
+
+    app = Starlette(routes=routes, exception_handlers={HTTPException: http_error}, lifespan=lifespan)
     app.state.bus = EventBus()
+    app.state.scanner = Scanner(camera_factory or default_source_factory, lambda code: app.state.bus.publish("scan"))
     app.state.data_dir = data_dir
     app.state.db_path = db_path
     return app
