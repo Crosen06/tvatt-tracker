@@ -1,0 +1,43 @@
+"""Pydantic models and allowed tag values (spec §4)."""
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+Temp = Literal[20, 30, 40, 50, 60, 90]
+Color = Literal["white", "light", "dark", "colored"]
+Spin = Literal[0, 400, 600, 800, 1000, 1200, 1400]
+Care = Literal["normal", "synthetic", "delicate", "wool", "hand"]
+HexColor = str
+
+
+class Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PersonIn(Strict):
+    name: str = Field(min_length=1, max_length=40)
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class PersonPatch(Strict):
+    name: str | None = Field(default=None, min_length=1, max_length=40)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class ProgramIn(Strict):
+    name: str = Field(min_length=1, max_length=40)
+    duration_min: int = Field(ge=1, le=600)
+    temp: Temp
+    care: Care
+
+
+class ProgramPatch(Strict):
+    name: str | None = Field(default=None, min_length=1, max_length=40)
+    duration_min: int | None = Field(default=None, ge=1, le=600)
+    temp: Temp | None = None
+    care: Care | None = None
+
+
+class SettingsPatch(Strict):
+    split_hot: bool | None = None
