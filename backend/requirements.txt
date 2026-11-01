@@ -1,5 +1,7 @@
-starlette==1.7.0
-uvicorn==0.54.0
-pydantic==2.13.5
-pillow==12.3.0
-python-multipart==0.0.32
+# Runtime dependencies. Tested with: starlette 1.7.0, uvicorn 0.54.0, pydantic 2.13.5,
+# pillow 12.3.0, python-multipart 0.0.32 on Python 3.13.
+starlette>=0.40,<2
+uvicorn>=0.30
+pydantic>=2.6,<3
+pillow>=10.0
+python-multipart>=0.0.9
