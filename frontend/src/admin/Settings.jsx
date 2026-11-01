@@ -31,9 +31,9 @@ function PersonRow({ person }) {
 export default function Settings() {
   const { people, settings } = useStore();
 
-  async function setSplit(value) {
+  async function setSetting(patch) {
     try {
-      await api.patch("/api/settings", { split_hot: value });
+      await api.patch("/api/settings", patch);
       reload("settings");
     } catch (e) {
       toast(e.message);
@@ -52,11 +52,23 @@ export default function Settings() {
       <section className="card">
         <h2 className="section-title">Tvättregler</h2>
         <label className="toggle">
-          <input type="checkbox" checked={settings.split_hot} onChange={(e) => setSplit(e.target.checked)} />
+          <input type="checkbox" checked={settings.split_hot} onChange={(e) => setSetting({ split_hot: e.target.checked })} />
           <span>
             Tvätta 60° och varmare för sig
             <span className="hint" style={{ display: "block" }}>
               Handdukar och lakan som tål 60° tvättas varmt i en egen tvätt i stället för att följa med en 40-gradstvätt.
+            </span>
+          </span>
+        </label>
+      </section>
+      <section className="card">
+        <h2 className="section-title">Kök</h2>
+        <label className="toggle">
+          <input type="checkbox" checked={settings.auto_list !== false} onChange={(e) => setSetting({ auto_list: e.target.checked })} />
+          <span>
+            Lägg på inköpslistan när något tar slut
+            <span className="hint" style={{ display: "block" }}>
+              När en vara markeras som slut hamnar den på inköpslistan av sig själv.
             </span>
           </span>
         </label>

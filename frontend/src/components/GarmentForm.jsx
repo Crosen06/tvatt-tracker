@@ -11,6 +11,7 @@ export default function GarmentForm({ initial, photoUrl, photoRequired, submitLa
   const [photo, setPhoto] = useState(null); // { blob, url }
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [preparing, setPreparing] = useState(false); // photo is being shrunk; saving now would lose it
   const set = (k) => (v) => setValues((s) => ({ ...s, [k]: v }));
 
   useEffect(() => () => photo && URL.revokeObjectURL(photo.url), [photo]);
@@ -19,9 +20,16 @@ export default function GarmentForm({ initial, photoUrl, photoRequired, submitLa
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const blob = await resizeImage(file);
-    setPhoto({ blob, url: URL.createObjectURL(blob) });
-    setError(null);
+    setPreparing(true);
+    try {
+      const blob = await resizeImage(file);
+      setPhoto({ blob, url: URL.createObjectURL(blob) });
+      setError(null);
+    } catch {
+      setError("Bildformatet stöds inte. Ta en ny bild med kameran.");
+    } finally {
+      setPreparing(false);
+    }
   }
 
   async function submit(e) {
@@ -83,8 +91,8 @@ export default function GarmentForm({ initial, photoUrl, photoRequired, submitLa
             {error}
           </p>
         )}
-        <button className="btn btn-primary btn-block" type="submit" disabled={busy}>
-          {busy ? "Sparar…" : submitLabel}
+        <button className="btn btn-primary btn-block" type="submit" disabled={busy || preparing}>
+          {busy ? "Sparar…" : preparing ? "Förbereder bilden…" : submitLabel}
         </button>
       </div>
     </form>

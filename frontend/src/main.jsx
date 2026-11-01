@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import { isKiosk } from "./lib/router.js";
 import "./styles.css";
+import "./kitchen/kitchen.css";
 
 // After a long idle period the Pi's screen is probably blanked. The tap that wakes it
 // must not also press whatever button happens to be under the finger.

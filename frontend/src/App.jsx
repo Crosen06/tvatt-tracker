@@ -4,8 +4,11 @@ import DoneOverlay from "./components/DoneOverlay.jsx";
 import PersonTab from "./components/PersonTab.jsx";
 import TopBar from "./components/TopBar.jsx";
 import WashTab from "./components/WashTab.jsx";
+import Pantry from "./kitchen/Pantry.jsx";
+import Recipes from "./kitchen/Recipes.jsx";
+import Shopping from "./kitchen/Shopping.jsx";
 import { useRoute } from "./lib/router.js";
-import { connectEvents, loadAll, useStore } from "./lib/store.js";
+import { clearToast, connectEvents, loadAll, useStore } from "./lib/store.js";
 
 export default function App() {
   const { loaded, online, people, toast } = useStore();
@@ -20,6 +23,9 @@ export default function App() {
   let page = null;
   if (loaded) {
     if (route.path.startsWith("/admin")) page = <AdminRoutes route={route} />;
+    else if (route.path.startsWith("/kok/handla")) page = <Shopping />;
+    else if (route.path.startsWith("/kok/recept") || route.path.startsWith("/kok/ica")) page = <Recipes route={route} />;
+    else if (route.path.startsWith("/kok")) page = <Pantry />;
     else if (route.path === "/tvatta") page = <WashTab />;
     else page = <PersonTab personId={route.params.id ?? people[0]?.id} />;
   }
@@ -32,6 +38,17 @@ export default function App() {
       {toast && (
         <div key={toast.id} className={`toast toast-${toast.kind}`} role="alert">
           {toast.message}
+          {toast.action && (
+            <button
+              className="toast-action"
+              onClick={() => {
+                clearToast();
+                toast.action.run();
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
       <DoneOverlay />

@@ -11,13 +11,21 @@ const TimerIcon = () => (
   </svg>
 );
 
+const PantryIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M8 3h8v3a2 2 0 0 1-1 1.7V19a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V7.7A2 2 0 0 1 8 6V3Z" />
+    <path d="M10 12h4" />
+  </svg>
+);
+
 export default function AdminHome() {
-  const { garments, programs } = useStore();
+  const { garments, programs, items: pantry } = useStore();
   const items = [
     { to: "/admin/ny", icon: <CameraIcon />, title: "Lägg till plagg", sub: "Fota och tagga ett nytt plagg" },
     { to: "/admin/plagg", icon: <BasketIcon />, title: "Alla plagg", sub: plural(garments.length, "plagg", "plagg") },
     { to: "/admin/program", icon: <TimerIcon />, title: "Tvättprogram", sub: `${plural(programs.length, "program", "program")} och hur långa de är` },
-    { to: "/admin/installningar", icon: <GearIcon />, title: "Inställningar", sub: "Personer och tvättregler" },
+    { to: "/admin/varor", icon: <PantryIcon />, title: "Varor", sub: `${plural(pantry.length, "vara", "varor")} i skafferiet` },
+    { to: "/admin/installningar", icon: <GearIcon />, title: "Inställningar", sub: "Personer, tvättregler och kök" },
   ];
   return (
     <div className="admin">

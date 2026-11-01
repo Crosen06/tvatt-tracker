@@ -7,12 +7,14 @@ let state = {
   online: true,
   people: [],
   programs: [],
-  settings: { split_hot: true },
+  settings: { split_hot: true, auto_list: true },
   garments: [],
   suggestions: [],
   wash: null,
   serverOffsetMs: 0,
   toast: null,
+  items: [],
+  shopping: { entries: [], frequent: [] },
 };
 const listeners = new Set();
 
@@ -39,6 +41,8 @@ const loaders = {
   settings: async () => set({ settings: await api.get("/api/settings") }),
   garments: async () => set({ garments: await api.get("/api/garments") }),
   suggestions: async () => set({ suggestions: await api.get("/api/suggestions") }),
+  items: async () => set({ items: await api.get("/api/items") }),
+  shopping: async () => set({ shopping: await api.get("/api/shopping") }),
   wash: async () => {
     const r = await api.get("/api/washes/current");
     set({ wash: r.wash, serverOffsetMs: Date.parse(r.server_now) - Date.now() });
@@ -51,6 +55,8 @@ const TOPICS = {
   settings: ["settings", "suggestions"],
   garments: ["garments", "suggestions"],
   wash: ["wash", "suggestions"],
+  items: ["items", "shopping"],
+  shopping: ["shopping", "items"],
 };
 
 const pending = new Set();
@@ -104,11 +110,14 @@ export function connectEvents() {
 }
 
 let toastTimer = null;
-export function toast(message, kind = "error") {
+// action: optional { label, run } shown as a button in the toast (e.g. Ångra).
+export function toast(message, kind = "error", action = null) {
   clearTimeout(toastTimer);
-  set({ toast: { message, kind, id: Date.now() } });
-  toastTimer = setTimeout(() => set({ toast: null }), 4000);
+  set({ toast: { message, kind, action, id: Date.now() } });
+  toastTimer = setTimeout(() => set({ toast: null }), action ? 6000 : 4000);
 }
+
+export const clearToast = () => set({ toast: null });
 
 export function patchGarmentLocal(garment) {
   set({ garments: state.garments.map((g) => (g.id === garment.id ? { ...g, ...garment } : g)) });
