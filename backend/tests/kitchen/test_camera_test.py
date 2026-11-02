@@ -59,7 +59,7 @@ def test_camera_test_warns_about_low_resolution(tmp_path, monkeypatch, capsys):
 
 
 def test_camera_test_recognize_prints_best_matches(tmp_path, monkeypatch, capsys):
-    from app.kitchen import vision
+    from app.kitchen import locate, vision
     from app.main import create_app
     from tests.kitchen.vision_images import scene
 
@@ -71,7 +71,7 @@ def test_camera_test_recognize_prints_best_matches(tmp_path, monkeypatch, capsys
     ids = {n: conn.execute("SELECT id FROM item WHERE name=?", (n,)).fetchone()[0] for n in ("Banan", "Kaffe")}
     conn.close()
     for name, what in (("Banan", "banana"), ("Kaffe", "coffee")):
-        svc._save(ids[name], emb.embed(vision.model_input(scene(what))), b"jpeg", "learn")
+        svc._save(ids[name], emb.embed(locate.locate(scene(what)).image), b"jpeg", "learn")
 
     class BananaCam(FakeCam):
         def read(self):

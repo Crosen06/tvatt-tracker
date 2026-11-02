@@ -1,10 +1,15 @@
 import numpy as np
 import pytest
 
-from app.kitchen import vision
+from app.kitchen import locate, vision
 from app.kitchen.vision import Gallery, HistogramEmbedder, OnnxEmbedder, TokenStore, Watcher, decide
 from tests.kitchen.onnx_tiny import tiny_classifier
 from tests.kitchen.vision_images import scene
+
+
+def cut(frame):
+    """What the model sees: the item cut out of the guide box."""
+    return locate.locate(frame).image
 
 
 class Clock:
@@ -13,19 +18,6 @@ class Clock:
 
     def __call__(self):
         return self.t
-
-
-def test_center_crop_is_middle_square():
-    frame = np.zeros((1080, 1920, 3), np.uint8)
-    crop = vision.center_crop(frame)
-    assert crop.shape == (864, 864, 3)
-    frame[540, 960] = 255
-    assert vision.center_crop(frame)[432, 432].tolist() == [255, 255, 255]
-
-
-def test_model_input_size_and_grey():
-    assert vision.model_input(np.zeros((480, 640, 3), np.uint8)).shape == (224, 224, 3)
-    assert vision.model_input(np.zeros((480, 640), np.uint8)).shape == (224, 224, 3)
 
 
 def test_preprocess_normalises_rgb():
@@ -74,7 +66,7 @@ def test_onnx_embedder_uses_feature_layer(tmp_path):
     tiny_classifier(path, size=224, feat=6, classes=5)
     emb = OnnxEmbedder(path)
     assert emb.dim == 6  # the pooled features, not the 5 class scores
-    a = emb.embed(vision.model_input(scene("milk")))
+    a = emb.embed(cut(scene("milk")))
     assert a.shape == (6,) and float(np.linalg.norm(a)) == pytest.approx(1.0, abs=1e-5)
     assert emb.embed(scene("milk")[:300, :300]).shape == (6,)  # any size is resized
 
@@ -98,22 +90,48 @@ def test_load_embedder(tmp_path, monkeypatch):
 
 def test_histogram_embedder_tells_items_apart():
     emb = HistogramEmbedder()
-    e = {name: emb.embed(vision.model_input(scene(name, seed=i))) for i, name in enumerate(["milk", "banana", "coffee"])}
-    again = emb.embed(vision.model_input(scene("milk", seed=9, shift=15)))
+    e = {name: emb.embed(cut(scene(name, seed=i))) for i, name in enumerate(["milk", "banana", "coffee"])}
+    again = emb.embed(cut(scene("milk", seed=9, shift=15)))
     assert vision.cosine(again, e["milk"]) > 0.95
     assert vision.cosine(again, e["banana"]) < 0.8
     assert vision.cosine(again, e["coffee"]) < 0.8
 
 
-def test_gallery_best_picture_per_item():
+def test_gallery_best_pictures_per_item():
     g = Gallery()
     assert g.match([1.0, 0.0]) == []
     g.set([(1, [1, 0, 0]), (1, [0.8, 0.6, 0]), (2, [0, 1, 0]), (3, [0, 0, 1])])
     m = g.match([0.9, 0.1, 0])
     assert [i for i, _ in m] == [1, 2, 3]
-    assert m[0][1] == pytest.approx(vision.cosine([0.9, 0.1, 0], [1, 0, 0]))
+    q = [0.9, 0.1, 0]
+    assert m[0][1] == pytest.approx((vision.cosine(q, [1, 0, 0]) + vision.cosine(q, [0.8, 0.6, 0])) / 2)
     assert len(g.match([0.9, 0.1, 0], k=2)) == 2
     assert g.match([1.0, 0.0]) == []  # other model's dimension
+
+
+def test_gallery_scores_mean_of_best_three():
+    q = np.array([1.0, 0.0])
+
+    def at(sim):  # a unit vector with cosine `sim` to q
+        return [sim, float(np.sqrt(1 - sim * sim))]
+
+    g = Gallery()
+    g.set([(1, at(0.9)), (1, at(0.8)), (1, at(0.7)), (1, at(0.1)), (2, at(0.85))])
+    m = g.match(q)
+    assert [i for i, _ in m] == [2, 1]
+    assert m[0][1] == pytest.approx(0.85, abs=1e-6)
+    assert m[1][1] == pytest.approx(0.8, abs=1e-6)  # the 0.1 picture does not drag the item down
+
+
+@pytest.mark.parametrize("model_id, legacy", [
+    ("mobilenetv2-2022apr-1280", True),
+    ("mobilenetv2-2022apr-1280-obj1", False),
+    ("histogram-v1", True),
+    ("histogram-v1-obj1", False),
+    ("something-else", False),
+])
+def test_is_legacy(model_id, legacy):
+    assert vision.is_legacy(model_id) is legacy
 
 
 LIMITS = {"sure": 0.8, "maybe": 0.65, "margin": 0.05}
@@ -155,7 +173,7 @@ def test_token_store_limit_expiry_and_codes():
 
 def embed_fn():
     emb = HistogramEmbedder()
-    return lambda frame: emb.embed(vision.model_input(frame))
+    return lambda frame: emb.embed(cut(frame))
 
 
 def learned(*items):
@@ -267,3 +285,7 @@ def test_watcher_moving_item_not_recognised():
     run(w, [scene(None, seed=i) for i in range(4)], clock, rec)
     out = run(w, [scene("milk", seed=10 + i, shift=(-1) ** i * 60) for i in range(10)], clock, rec)
     assert hits(out) == []
+
+
+def test_limits():
+    assert vision.MAX_PER_ITEM == 80 and vision.TOP_K == 3

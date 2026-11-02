@@ -4,13 +4,17 @@ import numpy as np
 import pytest
 from starlette.testclient import TestClient
 
-from app.kitchen import vision
+from app.kitchen import locate, vision
 from app.kitchen.vision import HistogramEmbedder
 from app.main import create_app
 from tests.kitchen.barcode_images import ean13_frame
 from tests.kitchen.vision_images import scene
 
 CODE = "4006381333931"
+
+
+def locate_image(frame):
+    return locate.locate(frame).image
 
 
 class Cam:
@@ -30,7 +34,7 @@ class Cam:
     def read(self):
         time.sleep(0.01)
         self.n += 1
-        return self.raw if self.raw is not None else scene(self.item, seed=self.n % 50)
+        return self.raw if self.raw is not None else scene(self.item, seed=self.n % 50, person=True)
 
     def release(self):
         pass
@@ -274,14 +278,14 @@ def test_gallery_forgets_deleted_newest_picture(vc):
     milk, coffee = new_item(vc, "Testmjölk"), new_item(vc, "Testkaffe", "Skafferi")
     svc = vc.app.state.vision
     emb = HistogramEmbedder()
-    m = emb.embed(vision.model_input(scene("milk")))
-    c = emb.embed(vision.model_input(scene("coffee")))
+    m = emb.embed(locate_image(scene("milk")))
+    c = emb.embed(locate_image(scene("coffee")))
     assert svc._save(coffee, c, b"jpeg", "learn")
     assert svc._save(milk, m, b"jpeg", "learn")
     assert svc._matches(m)[0][0] == milk
     newest = svc.item_images(milk)[0]["id"]
     assert svc.delete_image(newest)
-    assert svc._save(coffee, emb.embed(vision.model_input(scene("bread"))), b"jpeg", "learn")  # reuses the row id
+    assert svc._save(coffee, emb.embed(locate_image(scene("bread"))), b"jpeg", "learn")  # reuses the row id
     assert all(item_id != milk for item_id, _ in svc._matches(m))
 
 
@@ -289,4 +293,56 @@ def test_model_id_includes_feature_length(tmp_path):
     from tests.kitchen.onnx_tiny import tiny_classifier
 
     tiny_classifier(tmp_path / "m.onnx", size=224, feat=6)
-    assert vision.OnnxEmbedder(tmp_path / "m.onnx").model_id == "mobilenetv2-2022apr-6"
+    assert vision.OnnxEmbedder(tmp_path / "m.onnx").model_id == "mobilenetv2-2022apr-6-obj1"
+    assert HistogramEmbedder().model_id == "histogram-v1-obj1"
+
+
+def test_capture_without_item_saves_nothing(vc, cam):
+    milk = new_item(vc, "Testmjölk")
+    vc.post("/api/scan/start")
+    cam.show(None)
+    assert wait_for(lambda: vc.app.state.scanner.latest_frame() is not None)
+    r = vc.post("/api/vision/capture", json={"item_id": milk})
+    assert r.status_code == 200 and r.json() == {"saved": False, "count": 0, "found": False}
+    cam.show("milk")
+    r = vc.post("/api/vision/capture", json={"item_id": milk}).json()
+    assert r == {"saved": True, "count": 1, "found": True}
+
+
+def test_capture_item_too_close_saves_nothing(vc, cam):
+    milk = new_item(vc, "Testmjölk")
+    vc.post("/api/scan/start")
+    cam.show(raw=np.full((480, 640, 3), (40, 40, 200), np.uint8))  # fills the whole box
+    r = vc.post("/api/vision/capture", json={"item_id": milk}).json()
+    assert r == {"saved": False, "count": 0, "found": False}
+
+
+def test_legacy_pictures_removed_on_start(tmp_path):
+    from app.db import connect
+
+    data = tmp_path / "d"
+    app = create_app(data, vision_loader=fake_loader)
+    vecs = vision.to_blob(np.ones(HistogramEmbedder.dim))
+    with TestClient(app) as c:
+        milk = new_item(c, "Testmjölk")
+        conn = connect(app.state.db_path)
+        with conn:
+            for name, model in (("old.jpg", "histogram-v1"), ("old2.jpg", "mobilenetv2-2022apr-1280"), ("new.jpg", "histogram-v1-obj1")):
+                (data / "vision" / name).write_bytes(b"jpeg")
+                conn.execute(
+                    "INSERT INTO item_image (item_id, file, model, embedding, source, created_at) VALUES (?, ?, ?, ?, 'learn', '2026-11-01T00:00:00Z')",
+                    (milk, name, model, vecs),
+                )
+        conn.close()
+        assert c.get("/api/vision/status").json()["images"] == 1
+        assert [i["url"] for i in c.get(f"/api/items/{milk}/images").json()] == ["/vision/new.jpg"]
+        assert sorted(p.name for p in (data / "vision").iterdir()) == ["new.jpg"]
+
+
+def test_same_item_different_shirt():
+    emb = HistogramEmbedder()
+    a = emb.embed(locate_image(scene("milk", person=True, shirt=0)))
+    b = emb.embed(locate_image(scene("milk", person=True, shirt=1, seed=3)))
+    other = emb.embed(locate_image(scene("coffee", person=True, shirt=0)))
+    assert vision.cosine(a, b) >= 0.9
+    assert vision.cosine(a, other) < 0.8

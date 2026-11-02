@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.kitchen import scanner, vision  # noqa: E402
+from app.kitchen import locate, scanner, vision  # noqa: E402
 
 DECISION = {"sure": "säker", "maybe": "osäker", "none": "ingen träff"}
 
@@ -146,7 +146,7 @@ def main(argv=None) -> int:
             if embedder is not None and time.time() >= next_guess:
                 next_guess = time.time() + 1
                 t0 = time.perf_counter()
-                vec = embedder.embed(vision.model_input(frame))
+                vec = embedder.embed(locate.locate(frame).image)
                 ms = (time.perf_counter() - t0) * 1000
                 matches = gallery.match(vec)
                 shown = " · ".join(f"{names.get(i, i)} {s:.2f}" for i, s in matches) or "inga inlärda varor"

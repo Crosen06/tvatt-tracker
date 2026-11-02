@@ -1,25 +1,31 @@
-"""Recognise pantry items from the webcam picture (spec: docs/specs/2026-11-01-bildigenkanning-design.md).
+"""Recognise pantry items from the webcam picture (specs: docs/specs/2026-11-01-bildigenkanning-design.md,
+docs/specs/2026-11-02-varans-kontur-design.md).
 
-A pretrained image model turns the middle of the picture into an embedding ("fingerprint"); an item is
-recognised by its nearest learned pictures. Nothing here touches the database or the web layer; see
+A pretrained image model turns the item cut out of the guide box (see `locate.py`) into an embedding
+("fingerprint"); an item is recognised by its nearest learned pictures. Nothing here touches the database or the web layer; see
 `vision_service.py` for that. OpenCV and numpy are imported lazily so the app runs without them.
 """
 
 import os
+import re
 import threading
 import time
 import uuid
 from collections import OrderedDict
 from pathlib import Path
 
+from app.kitchen import locate
+
 MODEL_ID = "mobilenetv2-2022apr"
 FAKE_ID = "histogram-v1"
+# How the model's picture is made; part of the model id, so pictures made another way are never mixed.
+# "obj1": the item cut out of the guide box (2026-11-02). Ids without it are from the old centre square.
+METHOD = "obj1"
 MODEL_FILE = "mobilenetv2.onnx"
 MODEL_SHA256 = "c0c3f76d93fa3fd6580652a45618618a220fced18babf65774ed169de0432ad5"
 NOT_INSTALLED = "Bildigenkänningen är inte installerad. Kör ./deploy/update.sh."
 BROKEN_MODEL = "Bildmodellen gick inte att läsa in. Kör ./deploy/update.sh."
 
-CROP_FRACTION = 0.8  # side of the centre square, as a share of the picture's shorter side
 INPUT_SIZE = 224
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
@@ -30,7 +36,8 @@ SAME_HOLD = 0.90  # a still picture this close to the item just suggested is the
 STILL_DIFF = 6.0  # mean grey-level change (0-255) between checks below which the picture is still
 STILL_CHECKS = 2
 QUIET_AFTER_BARCODE = 2.0  # seconds: a barcode just read wins over recognition
-MAX_PER_ITEM = 40
+MAX_PER_ITEM = 80
+TOP_K = 3  # an item's score is the mean of its best pictures, so one odd picture gives no false hits
 TOKEN_LIMIT = 30
 TOKEN_TTL = 600.0
 
@@ -64,21 +71,9 @@ def _cv2():
     return cv2
 
 
-def center_crop(frame, fraction: float = CROP_FRACTION):
-    """The square in the middle of the picture, where the item is held."""
-    h, w = frame.shape[:2]
-    side = max(1, int(min(h, w) * fraction))
-    y, x = (h - side) // 2, (w - side) // 2
-    return frame[y:y + side, x:x + side]
-
-
-def model_input(frame):
-    """The 224×224 BGR picture the model sees; also what is saved as the learned picture."""
-    cv2 = _cv2()
-    crop = center_crop(frame)
-    if crop.ndim == 2:
-        crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
-    return cv2.resize(crop, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_AREA)
+def is_legacy(model_id: str) -> bool:
+    """Pictures learned with the old centre square (the person holding the item was in them)."""
+    return bool(re.fullmatch(r"mobilenetv2-2022apr-\d+", model_id)) or model_id == FAKE_ID
 
 
 def unit(vec):
@@ -132,7 +127,7 @@ class OnnxEmbedder:
         self.layer = feature_layer(self._net)
         self.dim = len(self.embed(_np().zeros((input_size, input_size, 3), _np().uint8)))
         # The length is part of the id, so features from another layer are never mixed with these.
-        self.model_id = f"{MODEL_ID}-{self.dim}"
+        self.model_id = f"{MODEL_ID}-{self.dim}-{METHOD}"
 
     def embed(self, img):
         cv2 = _cv2()
@@ -146,7 +141,7 @@ class OnnxEmbedder:
 class HistogramEmbedder:
     """Colour histogram + tiny grey picture. For tests and development only (TVATT_FAKE_VISION=1)."""
 
-    model_id = FAKE_ID
+    model_id = f"{FAKE_ID}-{METHOD}"
     dim = 8 * 4 * 4 + 64
 
     def embed(self, img):
@@ -182,7 +177,7 @@ def load_embedder(data_dir: Path):
 
 
 class Gallery:
-    """Embeddings of learned pictures; an item's score is its best picture's cosine similarity."""
+    """Embeddings of learned pictures; an item's score is the mean cosine of its TOP_K best pictures."""
 
     def __init__(self):
         np = _np()
@@ -203,11 +198,11 @@ class Gallery:
         if not len(self._items) or self._mat.shape[1] != len(vec):
             return []
         sims = self._mat @ unit(vec)
-        best: dict[int, float] = {}
+        per_item: dict[int, list[float]] = {}
         for item_id, s in zip(self._items.tolist(), sims.tolist()):
-            if s > best.get(item_id, -2.0):
-                best[item_id] = s
-        return sorted(best.items(), key=lambda p: (-p[1], p[0]))[:k]
+            per_item.setdefault(item_id, []).append(s)
+        scores = {i: sum(sorted(v, reverse=True)[:TOP_K]) / min(len(v), TOP_K) for i, v in per_item.items()}
+        return sorted(scores.items(), key=lambda p: (-p[1], p[0]))[:k]
 
 
 def decide(matches: list[tuple[int, float]], limits: dict | None = None) -> str:
@@ -291,8 +286,10 @@ class Watcher:
 
     def step(self, frame, embed, recognise):
         cv2, np = _cv2(), _np()
-        grey = frame if frame.ndim == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        small = cv2.resize(grey, (32, 24), interpolation=cv2.INTER_AREA).astype(np.float32)
+        x, y, side, _ = locate.guide_box(frame.shape)  # only movement where the item is held counts
+        box = frame[y:y + side, x:x + side]
+        grey = box if box.ndim == 2 else cv2.cvtColor(box, cv2.COLOR_BGR2GRAY)
+        small = cv2.resize(grey, (24, 24), interpolation=cv2.INTER_AREA).astype(np.float32)
         diff = float(np.abs(small - self._prev).mean()) if self._prev is not None else float("inf")
         self._prev = small
         if diff >= STILL_DIFF:

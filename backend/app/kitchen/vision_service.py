@@ -13,7 +13,7 @@ from pathlib import Path
 
 from app import clock
 from app.db import connect
-from app.kitchen import repo, vision
+from app.kitchen import locate, repo, vision
 
 log = logging.getLogger(__name__)
 
@@ -27,13 +27,16 @@ class VisionUnavailable(Exception):
 
 
 class VisionService:
-    def __init__(self, data_dir: Path, db_path: Path, publish, loader=vision.load_embedder, clock_fn=time.monotonic):
+    def __init__(self, data_dir: Path, db_path: Path, publish, loader=vision.load_embedder, clock_fn=time.monotonic,
+                 face_loader=locate.load_faces):
         self.dir = Path(data_dir) / "vision"
         self.dir.mkdir(parents=True, exist_ok=True)
         self._data_dir, self._db_path, self._publish = Path(data_dir), db_path, publish
-        self._loader, self._clock = loader, clock_fn
+        self._loader, self._face_loader, self._clock = loader, face_loader, clock_fn
         self._loaded = False
+        self._purged = False
         self._embedder = None
+        self._faces = None
         self.message: str | None = None
         self._lock = threading.RLock()  # embedder, gallery, watcher
         self._save_lock = threading.Lock()  # duplicate check + cap + insert happen as one step
@@ -54,8 +57,15 @@ class VisionService:
         with self._lock:
             if not self._loaded:
                 self._embedder, self.message = self._loader(self._data_dir)
+                if self._embedder is not None:
+                    self._faces = self._face_loader(self._data_dir)
                 self._loaded = True
-            return self._embedder
+            emb = self._embedder
+            purge = emb is not None and not self._purged
+            self._purged = self._purged or purge
+        if purge:  # outside self._lock: _purge_legacy takes _save_lock, which _save holds while calling _ensure
+            self._purge_legacy()
+        return emb
 
     @property
     def available(self) -> bool:
@@ -67,13 +77,14 @@ class VisionService:
             raise VisionUnavailable(self.message or vision.NOT_INSTALLED)
         return emb
 
-    def _embed(self, frame):
-        """(vector, jpeg bytes of the 224×224 picture) for a camera frame."""
+    def _analyse(self, frame):
+        """(vector, jpeg bytes of the 224×224 picture, locate.Located) for a camera frame."""
         emb = self._require()
-        img = vision.model_input(frame)
         with self._lock:
-            vec = emb.embed(img)
-        return vec, self._jpeg(img)
+            faces = self._faces.find(frame) if self._faces is not None else ()
+            found = locate.locate(frame, faces)
+            vec = emb.embed(found.image)
+        return vec, self._jpeg(found.image), found
 
     @staticmethod
     def _jpeg(img) -> bytes:
@@ -170,6 +181,28 @@ class VisionService:
         self._publish("vision")
         return True
 
+    def _purge_legacy(self) -> None:
+        """Remove pictures learned with the old centre square (spec 2026-11-02 §6)."""
+        try:
+            with self._save_lock:
+                conn = self._conn()
+                try:
+                    models = [r[0] for r in conn.execute("SELECT DISTINCT model FROM item_image")]
+                    old = [m for m in models if vision.is_legacy(m)]
+                    if not old:
+                        return
+                    with conn:
+                        ids = [r[0] for m in old for r in conn.execute("SELECT id FROM item_image WHERE model=?", (m,))]
+                        removed = self._delete_rows(conn, ids)
+                finally:
+                    conn.close()
+                self._unlink(removed)
+                self._version += 1
+            log.info("Removed %d pictures learned with the old method", len(removed))
+            self._publish("vision")
+        except Exception:  # noqa: BLE001  - recognition works without the clean-up
+            log.exception("Could not remove old learned pictures")
+
     def _delete_rows(self, conn, ids) -> list[str]:
         """Delete rows (inside the caller's transaction); returns their files to remove after commit."""
         files = []
@@ -199,18 +232,20 @@ class VisionService:
         return {"available": available, "message": None if available else self.message, "images": count}
 
     def identify(self, frame) -> dict:
-        vec, jpeg = self._embed(frame)
+        vec, jpeg, _ = self._analyse(frame)
         return {"seq": 0, **self._result(vec, jpeg, self._matches(vec))}
 
     def capture(self, item_id: int, frame) -> dict:
-        vec, jpeg = self._embed(frame)
-        saved = self._save(item_id, vec, jpeg, "learn")
+        """Learn the item in the guide box. Nothing is saved when no item is found there."""
+        vec, jpeg, found = self._analyse(frame)
+        saved = found.found and self._save(item_id, vec, jpeg, "learn")
         conn = self._conn()
         try:
+            repo.fetch_item(conn, item_id)  # an unknown item is a 404 even when nothing was found
             count = conn.execute("SELECT COUNT(*) FROM item_image WHERE item_id=? AND model=?", (item_id, self._model())).fetchone()[0]
         finally:
             conn.close()
-        return {"saved": saved, "count": count}
+        return {"saved": saved, "count": count, "found": found.found}
 
     def confirm(self, token: str, item_id: int) -> bool:
         entry = self.tokens.get(token)
@@ -232,7 +267,7 @@ class VisionService:
 
     def _learn_barcode(self, code: str, frame) -> None:
         try:
-            vec, jpeg = self._embed(frame)
+            vec, jpeg, _ = self._analyse(frame)
             self._watcher.hold(vec)
             conn = self._conn()
             try:
@@ -276,17 +311,17 @@ class VisionService:
                 if frame is not None:
                     with self._lock:
                         watcher = self._watcher
-                    watcher.step(frame, lambda f: self._embed(f)[0], lambda vec: self._suggest(frame, vec))
+                    vec, jpeg, _ = self._analyse(frame)
+                    watcher.step(frame, lambda f: vec, lambda v: self._suggest(vec, jpeg, self._matches(vec)))
                 time.sleep(CHECK_EVERY)
         except Exception:  # noqa: BLE001  - automatic mode stops; scanning goes on
             log.exception("Automatic recognition stopped")
 
-    def _suggest(self, frame, vec) -> bool:
+    def _suggest(self, vec, jpeg, matches) -> bool:
         """Automatic mode: show a card only when the item is recognised with confidence."""
-        matches = self._matches(vec)
         if vision.decide(matches) != "sure":
             return False
-        result = self._result(vec, self._jpeg(vision.model_input(frame)), matches)
+        result = self._result(vec, jpeg, matches)
         if not result["matches"]:
             return False
         self._seq += 1
