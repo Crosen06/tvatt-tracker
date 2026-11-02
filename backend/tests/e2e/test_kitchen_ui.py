@@ -543,7 +543,7 @@ def show_scene(srv, what):
 
     _pic["n"] += 1
     path = srv["cam"] / f"scene-{_pic['n']:03d}.png"
-    cv2.imwrite(str(path), scene(what, seed=_pic["n"]))
+    cv2.imwrite(str(path), scene(what, seed=_pic["n"], person=True))
     # FolderSource shows the newest file; make sure this one is newest even within one mtime tick.
     t = time.time() + _pic["n"] * 0.001
     __import__("os").utime(path, (t, t))
@@ -562,6 +562,7 @@ def test_learn_then_recognise_item(vserver, browser):
     pg.goto(base + "/?kiosk=1#/kok/skafferi")
     pg.get_by_role("button", name="Skanna").click()
     pw.expect(pg.get_by_text("Håll upp varan mot kameran")).to_be_visible()
+    pw.expect(pg.locator(".scan-aim")).to_have_count(0)  # the guide box in the picture is the aim now
     time.sleep(1.0)  # the empty kitchen becomes the background
     show_scene(vserver, "banana")
 
@@ -570,14 +571,22 @@ def test_learn_then_recognise_item(vserver, browser):
     type_osk(pg, "banan")
     pg.locator(".link-choices").get_by_role("button", name="Banan", exact=True).click()
     pw.expect(pg.get_by_role("progressbar")).to_be_visible()
+    learn = pg.locator(".learn")
+    pw.expect(learn.get_by_role("img", name="Kamerabild")).to_be_visible()
+    pw.expect(learn.get_by_text("Håll varan i rutan och vrid den långsamt – visa fram, bak och sidor")).to_be_visible()
+    pw.expect(learn.get_by_text("1 av 24 bilder")).to_be_visible(timeout=5000)
+    time.sleep(1.0)
     shot(pg, "kiosk-vision-learn")
-    pw.expect(pg.get_by_text("Lärde in 1 bild av Banan")).to_be_visible(timeout=20000)
+    assert no_hscroll(pg)
+    # The fake camera repeats one picture, so later tries are duplicates: it stops after 48 tries
+    pw.expect(pg.get_by_text("Lärde in 1 bild av Banan")).to_be_visible(timeout=30000)
     banan = item(base, "Banan")
     assert len(api(base, "GET", f"/api/items/{banan['id']}/images")) == 1
 
-    # Take it away and hold it up again: the card shows by itself
+    # Take it away and hold it up again: the card shows by itself. The empty box must be still for
+    # two analyses (0.4 s apart) before it counts as empty.
     show_scene(vserver, None)
-    time.sleep(1.0)
+    time.sleep(2.0)
     show_scene(vserver, "banana")
     card = pg.locator(".scan-result")
     pw.expect(card.get_by_role("heading", name="Banan")).to_be_visible(timeout=10000)
@@ -607,12 +616,30 @@ def test_learn_then_recognise_item(vserver, browser):
     assert errors == []
 
 
+def test_learn_hint_when_no_item(vserver, browser):
+    base = vserver["base"]
+    errors = []
+    pg = new_page(browser, KIOSK, errors)
+    pg.goto(base + "/?kiosk=1#/kok/skafferi")
+    show_scene(vserver, None)
+    pg.get_by_role("button", name="Skanna").click()
+    pw.expect(pg.get_by_text("Håll upp varan mot kameran")).to_be_visible()
+    pg.get_by_role("button", name="Lär in").click()
+    type_osk(pg, "banan")
+    pg.locator(".link-choices").get_by_role("button", name="Banan", exact=True).click()
+    pw.expect(pg.locator(".learn").get_by_text("Håll varan i rutan", exact=True)).to_be_visible(timeout=10000)
+    shot(pg, "kiosk-vision-learn-hint")
+    pw.expect(pg.get_by_text("Fick inga nya bilder av Banan")).to_be_visible(timeout=30000)
+    assert errors == []
+
+
 def test_no_recognition_buttons_without_model(kserver, browser):
     errors = []
     pg = new_page(browser, KIOSK, errors)
     pg.goto(kserver["base"] + "/?kiosk=1#/kok/skafferi")
     pg.get_by_role("button", name="Skanna").click()
     pw.expect(pg.get_by_text("Håll streckkoden mot kameran")).to_be_visible()
+    pw.expect(pg.locator(".scan-aim")).to_have_count(1)
     pw.expect(pg.get_by_role("button", name="Vad är det här?")).to_have_count(0)
     pw.expect(pg.get_by_role("button", name="Lär in")).to_have_count(0)
     assert errors == []

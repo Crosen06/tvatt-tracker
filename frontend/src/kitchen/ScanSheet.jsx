@@ -137,7 +137,7 @@ export default function ScanSheet() {
       <div className="scan-body">
         <div className="scan-preview">
           {state === "ready" && <img key={streamKey} src={`/api/scan/stream?k=${streamKey}`} alt="Kamerabild" onError={streamFailed} />}
-          {state === "ready" && <span className="scan-aim" aria-hidden="true" />}
+          {state === "ready" && !canSee && <span className="scan-aim" aria-hidden="true" />}
           {state === "starting" && <p className="hint">Startar kameran…</p>}
           {state === "error" && (
             <div className="scan-error">

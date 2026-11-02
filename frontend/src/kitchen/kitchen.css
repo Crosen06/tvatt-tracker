@@ -215,7 +215,11 @@ button.recipe-card:active { transform: scale(.99); }
 .vision-others { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .vision-or { color: var(--muted); }
 .vision-help { color: var(--muted); font-size: var(--fs-sm); }
-.learn { display: grid; gap: 12px; padding: 4px 0 8px; }
+.learn { display: grid; grid-template-columns: minmax(0, 300px) 1fr; gap: 16px; padding: 4px 0 8px; align-items: start; }
+.learn-preview { max-width: 300px; }
+.learn-side { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.learn-hint { color: var(--warn); font-weight: 500; }
+@media (max-width: 560px) { .learn { grid-template-columns: 1fr; } }
 .learn-bar { height: 14px; border-radius: 7px; background: var(--rinse-2); overflow: hidden; }
 .learn-bar span { display: block; height: 100%; background: var(--mint); transition: width .3s; }
 
