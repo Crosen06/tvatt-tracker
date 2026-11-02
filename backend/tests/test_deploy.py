@@ -175,18 +175,25 @@ def test_update_fetches_model_but_survives_failure(tmp_path):
     assert "Bildmodellen kunde inte hämtas" in r.stdout  # … and the update still finishes
 
 
-def _model_env(tmp_path, content: bytes, sha: str | None = None):
+def _model_env(tmp_path, content: bytes, sha: str | None = None, face: bytes = b"face bytes", face_sha: str | None = None):
     import hashlib
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "curl.log"
-    src = tmp_path / "model.bin"
+    src, face_src = tmp_path / "model.bin", tmp_path / "face.bin"
     src.write_bytes(content)
+    face_src.write_bytes(face)
     curl = bin_dir / "curl"
-    curl.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\nwhile [ "$1" != "-o" ]; do shift; done\ncp "{src}" "$2"\n')
+    curl.write_text(
+        f'#!/bin/sh\necho "$@" >> "{log}"\n'
+        f'case "$*" in *yunet*) src="{face_src}" ;; *) src="{src}" ;; esac\n'
+        'while [ "$1" != "-o" ]; do shift; done\ncp "$src" "$2"\n'
+    )
     curl.chmod(0o755)
-    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path), "TVATT_MODEL_SHA256": sha or hashlib.sha256(content).hexdigest()}
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path),
+           "TVATT_MODEL_SHA256": sha or hashlib.sha256(content).hexdigest(),
+           "TVATT_FACE_SHA256": face_sha or hashlib.sha256(face).hexdigest()}
     return env, log
 
 
@@ -196,10 +203,11 @@ def test_get_model_downloads_once(tmp_path):
     r = run("get-model.sh", env, str(data))
     assert r.returncode == 0, r.stderr
     assert (data / "models" / "mobilenetv2.onnx").read_bytes() == b"model bytes"
+    assert (data / "models" / "face_yunet.onnx").read_bytes() == b"face bytes"
     r = run("get-model.sh", env, str(data))
     assert r.returncode == 0 and "finns redan" in r.stdout
-    assert len(log.read_text().splitlines()) == 1  # not downloaded again
-    assert [p.name for p in (data / "models").iterdir()] == ["mobilenetv2.onnx"]
+    assert len(log.read_text().splitlines()) == 2  # each downloaded once, not again
+    assert sorted(p.name for p in (data / "models").iterdir()) == ["face_yunet.onnx", "mobilenetv2.onnx"]
 
 
 def test_get_model_refuses_wrong_checksum(tmp_path):
@@ -207,7 +215,23 @@ def test_get_model_refuses_wrong_checksum(tmp_path):
     env, _ = _model_env(tmp_path, b"tampered", sha="0" * 64)
     r = run("get-model.sh", env, str(data))
     assert r.returncode == 1 and "fel kontrollsumma" in r.stderr
-    assert list((data / "models").iterdir()) == []  # no model and no temp file left
+    assert sorted(p.name for p in (data / "models").iterdir()) == ["face_yunet.onnx"]  # no model, no temp file
+
+
+def test_get_model_face_failure_is_not_fatal(tmp_path):
+    data = tmp_path / "data"
+    env, _ = _model_env(tmp_path, b"model bytes", face_sha="0" * 64)
+    r = run("get-model.sh", env, str(data))
+    assert r.returncode == 0, r.stderr
+    assert "Ansiktsmodellen kunde inte hämtas; ansikten filtreras inte bort." in r.stderr
+    assert sorted(p.name for p in (data / "models").iterdir()) == ["mobilenetv2.onnx"]
+
+
+def test_face_checksum_matches_app():
+    from app.kitchen import locate
+
+    assert locate.FACE_SHA256 in (DEPLOY / "get-model.sh").read_text()
+    assert locate.FACE_FILE in (DEPLOY / "get-model.sh").read_text()
 
 
 def test_model_checksum_matches_app():

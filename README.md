@@ -82,20 +82,31 @@ cd ~/tvatt-tracker
 Skriptet visar upplösning, bildformat, autofokus och skärpa, försöker läsa en streckkod i 15 sekunder och sparar den skarpaste bilden i `~/tvatt-data/kamera-test.jpg`. Om datorn blir för långsam med full HD kan du sänka upplösningen med raden `TVATT_CAMERA_SIZE=1280x720` i filen `~/tvatt-data/tvatt.env` (se [Egna inställningar](#egna-inställningar)).
 
 ### Känna igen varor på bilden
-Kameran kan också känna igen varor på hur de ser ut, utan streckkod. Det är bra för frukt, bröd och sådant som är svårt att skanna. `./deploy/update.sh` hämtar bildmodellen (14 MB) till `~/tvatt-data/models/`; utan den fungerar streckkoderna som vanligt och knapparna nedan syns inte.
+Kameran kan också känna igen varor på hur de ser ut, utan streckkod. Det är bra för frukt, bröd och sådant som är svårt att skanna. `./deploy/update.sh` hämtar bildmodellen (14 MB) och en liten ansiktsmodell (0,2 MB) till `~/tvatt-data/models/`. Utan bildmodellen fungerar streckkoderna som vanligt, och knapparna nedan syns inte. Utan ansiktsmodellen fungerar allt, men ett ansikte som syns i rutan kan räknas med.
 
-1. **Lär in en vara:** tryck **Skanna** → **Lär in**, välj varan (eller **Ny vara**) och vrid den långsamt framför kameran. Appen tar 8 bilder på ungefär 6 sekunder.
-2. **Känna igen:** håll upp varan stilla i mitten av bilden. Är appen säker visas varukortet direkt, med de två näst bästa förslagen och **Fel vara?** ovanför knapparna. Är den osäker får du välja bland tre förslag. **Vad är det här?** visar förslag direkt, även när appen är osäker.
+**Rutan och konturen.** I kamerabilden finns en ruta med vita hörn. Håll varan i rutan. Appen klipper ut varan från det som syns runt den, till exempel din tröja och köket. Bara varan jämförs, så den som håller den spelar ingen roll. Runt varan ritas en kontur:
+
+- **grön** med till exempel "Mjölk 87 %": säker träff
+- **gul** med "Mjölk? 71 %": osäker träff
+- **vit** med "Okänd (Mjölk 42 %)": ingen inlärd vara liknar den tillräckligt. Inom parentes står den som liknar mest.
+
+Procenten visar hur lik varan är sina inlärda bilder. Det är inte en sannolikhet. Står det "Håll varan i rutan" hittar appen ingen vara i rutan. Ofta är den för nära kameran och fyller hela rutan, eller har samma färg som det bakom den.
+
+1. **Lär in en vara:** tryck **Skanna** → **Lär in** och välj varan (eller **Ny vara**). Håll varan i rutan och vrid den långsamt, så att framsidan, baksidan och sidorna syns. Appen tar 24 bilder på ungefär 10 sekunder och visar kamerabilden med konturen under tiden. Bilder där ingen vara syns i rutan sparas inte.
+2. **Känna igen:** håll upp varan stilla i rutan. Är appen säker visas varukortet direkt, med de två näst bästa förslagen och **Fel vara?** ovanför knapparna. Är den osäker får du välja bland tre förslag. **Vad är det här?** visar förslag direkt, även när appen är osäker.
 3. **Appen lär sig själv:** varje gång en streckkod läses, och varje gång du väljer rätt vara bland förslagen, sparas bilden. Ju mer ni använder den, desto bättre blir den.
 4. **Rätta fel:** i mobilen under **Hantera → Inlärda bilder** ser du bilderna per vara. Tryck på en bild som visar fel vara för att ta bort den.
 
-Tips: lär in och skanna på samma ställe och i samma ljus, och håll varan så att den fyller rutan i mitten. Nästan likadana förpackningar (mellan- och standardmjölk av samma märke) kan blandas ihop, så titta på namnet innan du trycker.
+En varas poäng är snittet av dess tre bästa bilder, så en enda udda bild ger inga falska träffar. Bilder som lärdes in före 2026-11-02 hade personen med i bilden. De tas bort automatiskt vid första start efter uppdateringen, så lär in varorna igen.
 
-**Finjustera:** kör `.venv/bin/python scripts/camera_test.py --recognize --seconds 30` (stäng skanningen i appen först) och håll upp några varor. Varje sekund skrivs de tre mest lika varorna ut med poäng mellan 0 och 1. Som standard räknas ≥ 0,80 som säker träff (och minst 0,05 före tvåan) och ≥ 0,65 som osäker. Ser rätt varor ut att få till exempel 0,9 och fel varor 0,7 kan du skärpa gränserna i `~/tvatt-data/tvatt.env`:
+Tips: nästan likadana förpackningar (mellan- och standardmjölk av samma märke) kan blandas ihop, så titta på namnet innan du trycker.
+
+**Finjustera:** kör `.venv/bin/python scripts/camera_test.py --recognize --seconds 30` (stäng skanningen i appen först) och håll upp några varor. Varje sekund skrivs ut om en vara hittades i rutan och hur stor del av rutan den täcker, samt de tre mest lika varorna med poäng mellan 0 och 1. Bilden `~/tvatt-data/kamera-test.jpg` visar rutan och konturen. Som standard räknas ≥ 0,80 som säker träff (och minst 0,05 före tvåan) och ≥ 0,65 som osäker. Ser rätt varor ut att få till exempel 0,9 och fel varor 0,7 kan du skärpa gränserna i `~/tvatt-data/tvatt.env`. Där kan du också ändra rutans storlek (andel av bildhöjden, 0,3–0,9, standard 0,6):
 
 ```
 TVATT_VISION_SURE=0.85
 TVATT_VISION_MAYBE=0.75
+TVATT_VISION_BOX=0.5
 ```
 
 ### Egna inställningar
@@ -108,6 +119,8 @@ Inställningar som inte finns i appen skrivs i filen `~/tvatt-data/tvatt.env`, e
 | `TVATT_VISION_SURE=0.85` | Poäng som krävs för säker träff |
 | `TVATT_VISION_MAYBE=0.75` | Poäng som krävs för att visa förslag |
 | `TVATT_VISION_MARGIN=0.05` | Hur mycket bästa varan måste slå tvåan för säker träff |
+| `TVATT_VISION_BOX=0.5` | Rutans storlek i kamerabilden, som andel av bildhöjden (0,3–0,9, standard 0,6) |
+| `TVATT_FACE_MODEL=/sökväg/yunet.onnx` | Annan ansiktsmodell än `~/tvatt-data/models/face_yunet.onnx` |
 
 ### Kontrollera att allt fungerar på Pi:n
 Kameran, ICA och Open Food Facts kunde inte provas när appen byggdes, så kör det här efter installationen:
@@ -145,8 +158,8 @@ sudo systemctl start tvatt
 | Klockan visar fel tid | `sudo timedatectl set-timezone Europe/Stockholm` |
 | "Bildformatet stöds inte" | Ta bilden direkt med kameran i stället för att välja en fil. |
 | "Ingen kamera hittades" | Kontrollera att webbkameran sitter i och syns med `ls /dev/video*`. Starta om appen med `sudo systemctl restart tvatt`. Har du flera kameror kan du välja en annan med raden `TVATT_CAMERA=1` i `~/tvatt-data/tvatt.env`. |
-| Varan känns inte igen på bilden | Lär in fler bilder med **Lär in**, i samma ljus som när ni skannar. Visar förslagen ofta fel vara: ta bort felaktiga bilder under **Hantera → Inlärda bilder** och prova `camera_test.py --recognize` (se [Känna igen varor på bilden](#känna-igen-varor-på-bilden)). |
-| "Bildigenkänningen är inte installerad" | Kör `./deploy/get-model.sh` i `~/tvatt-tracker`. Den hämtar bildmodellen och kontrollerar den. Starta sedan om appen med `sudo systemctl restart tvatt`. |
+| Varan känns inte igen på bilden | Kontrollera att konturen ligger runt varan och inte runt något annat. Lär in fler bilder med **Lär in**, i samma ljus som när ni skannar. Visar förslagen ofta fel vara: ta bort felaktiga bilder under **Hantera → Inlärda bilder** och prova `camera_test.py --recognize` (se [Känna igen varor på bilden](#känna-igen-varor-på-bilden)). |
+| "Bildigenkänningen är inte installerad" | Kör `./deploy/get-model.sh` i `~/tvatt-tracker`. Den hämtar bildmodellen och ansiktsmodellen och kontrollerar dem. Starta sedan om appen med `sudo systemctl restart tvatt`. |
 | Streckkoden läses inte | Kör `.venv/bin/python scripts/camera_test.py` och titta på bilden `~/tvatt-data/kamera-test.jpg`. Är strecken suddiga har kameran fast fokus: håll varan längre bort (30–40 cm). Är de små och kantiga ger kameran för låg upplösning. Mer ljus hjälper alltid. Det går också att trycka **Skriv koden**. |
 | "Kunde inte nå ica.se" | Pi:n behöver internet för ICA-sök, import och Open Food Facts. Kör `scripts/check_kitchen.py`. Visar ICA-sök ✗ fast internet fungerar har ica.se troligen ändrat sin sida; import via länk fungerar ofta ändå. |
 | Skärmen släcks aldrig | `sudo raspi-config` → Display Options → Screen Blanking → på. |

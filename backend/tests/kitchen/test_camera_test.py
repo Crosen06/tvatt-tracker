@@ -2,6 +2,9 @@ import importlib.util
 import json
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 from app.kitchen import scanner
 from tests.kitchen.barcode_images import blank_frame, ean13_frame
 
@@ -80,12 +83,19 @@ def test_camera_test_recognize_prints_best_matches(tmp_path, monkeypatch, capsys
     monkeypatch.setattr(scanner, "CvSource", BananaCam)
     mod = load_script()
     monkeypatch.setattr(mod, "release_app_camera", lambda base: None)
-    rc = mod.main(["--seconds", "1.2", "--recognize", "--data", str(tmp_path / "data"), "--out", str(tmp_path / "b.jpg")])
+    out = tmp_path / "b.jpg"
+    rc = mod.main(["--seconds", "1.2", "--recognize", "--data", str(tmp_path / "data"), "--out", str(out)])
     text = capsys.readouterr().out
     assert rc == 0
     assert "histogram-v1" in text and "2 inlärda bilder av 2 varor" in text
     line = next(l for l in text.splitlines() if l.startswith("  Banan"))
     assert "Kaffe" in line and "säker" in line
+    assert "✓ vara hittad (" in text and "% av rutan)" in text
+    saved = cv2.imread(str(out))
+    raw = scene("banana", seed=3)
+    assert saved.shape == raw.shape
+    green = (np.abs(saved.astype(int) - (113, 191, 47)) <= 30).all(axis=-1).sum()
+    assert green > 200  # the outline is drawn into the saved picture
 
 
 def test_camera_test_recognize_without_model(tmp_path, monkeypatch, capsys):

@@ -8,8 +8,9 @@ Options: --seconds 15, --size 1920x1080, --camera 0, --out ~/tvatt-data/kamera-t
 Prints the resolution, picture format, frame rate, focus and sharpness, tries to read a barcode
 the whole time and saves the sharpest frame so it can be looked at on a computer.
 
-With --recognize it also loads the image model and, once a second, prints the three learned items
-the picture looks most like, with their scores. Use it to tune TVATT_VISION_SURE / _MAYBE.
+With --recognize it also loads the image model and, once a second, prints whether an item was found
+in the guide box, and the three learned items it looks most like, with their scores. Use it to tune
+TVATT_VISION_SURE / _MAYBE. The saved picture then shows the guide box and the item's outline.
 """
 
 import argparse
@@ -23,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.kitchen import locate, scanner, vision  # noqa: E402
+from app.kitchen import locate, overlay, scanner, vision  # noqa: E402
 
 DECISION = {"sure": "säker", "maybe": "osäker", "none": "ingen träff"}
 
@@ -101,7 +102,7 @@ def main(argv=None) -> int:
     except ImportError:
         print("✗ OpenCV saknas. Kör ./deploy/update.sh först.")
         return 1
-    embedder = gallery = None
+    embedder = gallery = faces = None
     names: dict = {}
     if args.recognize:
         embedder, message = vision.load_embedder(args.data)
@@ -109,8 +110,10 @@ def main(argv=None) -> int:
             print(f"✗ {message}")
             return 1
         gallery, names = load_gallery(args.data, embedder.model_id)
+        faces = locate.load_faces(args.data)
         print(f"Bildmodell: {embedder.model_id}, {getattr(embedder, 'dim', '?')} värden per bild, "
-              f"{len(gallery)} inlärda bilder av {len(set(names))} varor. Gränser: {vision.thresholds()}")
+              f"{len(gallery)} inlärda bilder av {len(set(names))} varor. Gränser: {vision.thresholds()}. "
+              f"Ansiktsfilter: {'på' if faces else 'av'}. Rutan: {locate.box_fraction():.2f} av bildhöjden.")
     release_app_camera(args.base)
     try:
         source = scanner.CvSource(args.camera)
@@ -128,7 +131,7 @@ def main(argv=None) -> int:
             print(f"! Kameran ger bara {info['width']}×{info['height']}. Det räcker sällan för vanliga streckkoder.")
         print(f"Håll upp en streckkod mot kameran ({int(args.seconds)} s)…", flush=True)
 
-        best, best_score, codes, frames = None, -1.0, [], 0
+        best, best_score, codes, frames, annotated = None, -1.0, [], 0, None
         start = next_guess = time.time()
         while time.time() - start < args.seconds:
             frame = source.read()
@@ -146,17 +149,28 @@ def main(argv=None) -> int:
             if embedder is not None and time.time() >= next_guess:
                 next_guess = time.time() + 1
                 t0 = time.perf_counter()
-                vec = embedder.embed(locate.locate(frame).image)
+                found = locate.locate(frame, faces.find(frame) if faces else ())
+                vec = embedder.embed(found.image)
                 ms = (time.perf_counter() - t0) * 1000
                 matches = gallery.match(vec)
+                print(f"✓ vara hittad ({round(found.area * 100)} % av rutan)" if found.found else "– ingen vara i rutan")
                 shown = " · ".join(f"{names.get(i, i)} {s:.2f}" for i, s in matches) or "inga inlärda varor"
                 print(f"  {shown} → {DECISION[vision.decide(matches)]} ({ms:.0f} ms)", flush=True)
+                label = names.get(matches[0][0], "") if matches else ""
+                analysis = {"at": 0.0, "contour": found.contour, "found": found.found, "label": label,
+                            "score": matches[0][1] if matches else 0.0,
+                            "decision": vision.decide(matches) if label else "none", "has_gallery": len(gallery) > 0}
+                annotated = overlay.draw(frame.copy(), frame.shape[:2], found.box, analysis, 0.0)
         fps = frames / max(time.time() - start, 0.001)
     finally:
         source.release()
 
     print(f"Bilder: {frames} ({fps:.1f} per sekund inklusive avkodning), bästa skärpa: {best_score:.0f}")
-    if best is not None:
+    if annotated is not None:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(args.out), annotated, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        print(f"Sparade den senaste bilden med rutan och konturen i {args.out}")
+    elif best is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(args.out), best, [cv2.IMWRITE_JPEG_QUALITY, 92])
         print(f"Sparade den skarpaste bilden i {args.out}")
