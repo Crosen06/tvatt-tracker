@@ -13,11 +13,11 @@ from pathlib import Path
 
 from app import clock
 from app.db import connect
-from app.kitchen import locate, repo, vision
+from app.kitchen import locate, overlay, repo, vision
 
 log = logging.getLogger(__name__)
 
-CHECK_EVERY = 0.25  # seconds between automatic-mode checks
+CHECK_EVERY = 0.4  # seconds between analyses of the camera picture (outline + automatic mode)
 JPEG_QUALITY = 85
 SOURCES = ("learn", "scan", "confirm")
 
@@ -50,6 +50,8 @@ class VisionService:
         self._worker: threading.Thread | None = None
         self._seq = 0
         self.last: dict = {"seq": 0, "token": None, "decision": "none", "matches": []}
+        self.analysis: dict | None = None  # the latest look at the camera picture, drawn by draw_overlay
+        self._draw_failed = False
 
     # --- model -----------------------------------------------------------------------------------
 
@@ -311,11 +313,47 @@ class VisionService:
                 if frame is not None:
                     with self._lock:
                         watcher = self._watcher
-                    vec, jpeg, _ = self._analyse(frame)
-                    watcher.step(frame, lambda f: vec, lambda v: self._suggest(vec, jpeg, self._matches(vec)))
+                    vec, jpeg, found = self._analyse(frame)
+                    matches = self._matches(vec)
+                    self.analysis = self._describe(found, matches)
+                    watcher.step(frame, lambda f: vec, lambda v: self._suggest(vec, jpeg, matches))
                 time.sleep(CHECK_EVERY)
         except Exception:  # noqa: BLE001  - automatic mode stops; scanning goes on
             log.exception("Automatic recognition stopped")
+        finally:
+            if session == self._session:
+                self.analysis = None
+
+    def _describe(self, found, matches) -> dict:
+        """What the outline in the camera picture shows (spec 2026-11-02 §7.1)."""
+        label, score = "", 0.0
+        if matches:
+            conn = self._conn()
+            try:
+                row = conn.execute("SELECT name FROM item WHERE id=?", (matches[0][0],)).fetchone()
+            finally:
+                conn.close()
+            label, score = (row["name"] if row else ""), matches[0][1]
+        with self._lock:
+            has_gallery = bool(self._gallery is not None and len(self._gallery))
+        return {
+            "at": self._clock(), "box": found.box, "contour": found.contour, "found": found.found,
+            "label": label, "score": round(float(score), 3), "decision": vision.decide(matches) if label else "none",
+            "has_gallery": has_gallery,
+        }
+
+    def draw_overlay(self, img, frame_size):
+        """Scanner thread: the guide box and the latest outline on a preview picture. Never raises."""
+        worker = self._worker
+        if self._embedder is None or worker is None or not worker.is_alive():
+            return img
+        try:
+            return overlay.draw(img, frame_size, locate.guide_box(frame_size), self.analysis, self._clock())
+        except Exception:  # noqa: BLE001
+            if not self._draw_failed:
+                self._draw_failed = True
+                log.exception("Could not draw the outline")
+            return img
 
     def _suggest(self, vec, jpeg, matches) -> bool:
         """Automatic mode: show a card only when the item is recognised with confidence."""

@@ -257,3 +257,35 @@ def test_broken_zxing_falls_back_to_opencv(monkeypatch):
     assert decode(ean13_frame(CODE)) == [CODE]
     assert scanner._zxing is False  # not tried again
     assert scanner.decoder_name() == "OpenCV"
+
+
+def test_overlay_draws_on_copy(made):
+    import cv2
+    import numpy as np
+
+    frame = np.full((480, 640, 3), 128, np.uint8)  # 640 wide: preview() returns the frame itself
+
+    def paint(img, size):
+        assert size == (480, 640)
+        img[:] = (0, 0, 255)
+        return img
+
+    s, _, _ = make(made, FakeSource([frame]), overlay=paint)
+    s.start()
+    assert wait_for(lambda: s.latest_jpeg() is not None)
+    time.sleep(0.1)
+    assert int(s.latest_frame().max()) == 128 and int(frame.max()) == 128  # the real picture is untouched
+    shown = cv2.imdecode(np.frombuffer(s.latest_jpeg(), np.uint8), cv2.IMREAD_COLOR)
+    assert shown[:, :, 2].mean() > 200 and shown[:, :, 0].mean() < 50
+
+
+def test_overlay_error_keeps_preview(made):
+    import numpy as np
+
+    def broken(img, size):
+        raise RuntimeError("boom")
+
+    s, _, _ = make(made, FakeSource([np.full((480, 640, 3), 128, np.uint8)]), overlay=broken)
+    s.start()
+    assert wait_for(lambda: s.latest_jpeg() is not None)
+    assert s.running

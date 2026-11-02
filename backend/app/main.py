@@ -88,6 +88,7 @@ def create_app(data_dir: Path | None = None, camera_factory=None, vision_loader=
         camera_factory or default_source_factory,
         on_scan,
         on_change=lambda: app.state.bus.publish("scan"),
+        overlay=lambda img, size: app.state.vision.draw_overlay(img, size),
     )
     app.state.data_dir = data_dir
     app.state.db_path = db_path

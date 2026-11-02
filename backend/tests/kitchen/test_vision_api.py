@@ -346,3 +346,38 @@ def test_same_item_different_shirt():
     other = emb.embed(locate_image(scene("coffee", person=True, shirt=0)))
     assert vision.cosine(a, b) >= 0.9
     assert vision.cosine(a, other) < 0.8
+
+
+def test_worker_keeps_latest_analysis(vc, cam):
+    milk = new_item(vc, "Testmjölk")
+    svc = vc.app.state.vision
+    vc.post("/api/scan/start")
+    assert learn(vc, cam, milk, "milk") >= 1
+    cam.show("milk")
+    assert wait_for(lambda: (svc.analysis or {}).get("decision") == "sure", timeout=3)
+    a = svc.analysis
+    assert a["found"] and a["label"] == "Testmjölk" and a["has_gallery"] and a["score"] > 0.8 and a["contour"]
+    img = np.full((360, 640, 3), 90, np.uint8)
+    drawn = svc.draw_overlay(img.copy(), (480, 640))
+    assert (np.abs(drawn.astype(int) - (113, 191, 47)) <= 12).all(axis=-1).sum() > 100  # green outline
+    vc.app.state.scanner.stop()
+    svc.wait_idle()
+    assert svc.analysis is None
+    assert svc.draw_overlay(img.copy(), (480, 640)).tolist() == img.tolist()  # nothing drawn without the worker
+
+
+def test_overlay_drawn_in_stream_picture(vc, cam):
+    import cv2
+
+    milk = new_item(vc, "Testmjölk")
+    vc.post("/api/scan/start")
+    assert learn(vc, cam, milk, "milk") >= 1
+    cam.show("milk")
+    svc = vc.app.state.vision
+    assert wait_for(lambda: (svc.analysis or {}).get("decision") == "sure", timeout=3)
+    time.sleep(0.3)
+    shown = cv2.imdecode(np.frombuffer(vc.app.state.scanner.latest_jpeg(), np.uint8), cv2.IMREAD_COLOR)
+    assert (np.abs(shown.astype(int) - (113, 191, 47)) <= 30).all(axis=-1).sum() > 100
+    assert vc.app.state.scanner.latest_frame() is not None
+    raw = vc.app.state.scanner.latest_frame()
+    assert (np.abs(raw.astype(int) - (113, 191, 47)) <= 30).all(axis=-1).sum() == 0  # the real picture stays clean

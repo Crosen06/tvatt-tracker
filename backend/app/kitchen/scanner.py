@@ -192,8 +192,11 @@ def default_source_factory():
 class Scanner:
     def __init__(self, source_factory: Callable, on_scan: Callable[[str], None], *, idle_seconds: float = 120,
                  debounce: float = 3.0, clock: Callable[[], float] = time.monotonic,
-                 on_change: Callable[[], None] | None = None):
+                 on_change: Callable[[], None] | None = None,
+                 overlay: Callable | None = None):
+        """`overlay(img, (h, w))` may draw on a copy of each preview picture (frame size given) and return it."""
         self._factory, self._on_scan = source_factory, on_scan
+        self._overlay = overlay
         self._on_change = on_change or (lambda: None)
         self.idle_seconds, self.debounce, self._clock = idle_seconds, debounce, clock
         self._lock = threading.Lock()
@@ -246,6 +249,15 @@ class Scanner:
         """The newest full-size picture (BGR), or None when the camera is not running."""
         return self._frame
 
+    def _drawn(self, img, frame):
+        """The preview with the overlay drawn on a copy (at ≤ 640 px the preview *is* the frame)."""
+        if self._overlay is None:
+            return img
+        try:
+            return self._overlay(img.copy(), frame.shape[:2])
+        except Exception:  # noqa: BLE001  - a drawing error must never stop the camera
+            return img
+
     def _hit(self, code: str) -> None:
         # Sliding window: a code held in view counts once; it must be out of view for `debounce`
         # seconds before it counts again.
@@ -275,7 +287,7 @@ class Scanner:
                 failed = 0
                 self._frame = frame
                 if n % PREVIEW_EVERY == 0:
-                    ok, buf = cv2.imencode(".jpg", preview(frame, cv2), [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    ok, buf = cv2.imencode(".jpg", self._drawn(preview(frame, cv2), frame), [cv2.IMWRITE_JPEG_QUALITY, 70])
                     if ok:
                         self._jpeg = buf.tobytes()
                 if n % DECODE_EVERY == 0:
