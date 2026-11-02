@@ -132,5 +132,5 @@ Konturen ritas i själva bilden, så den hänger alltid ihop med bilden, även m
 - **Samma vara, olika tröjor:** samma förpackning framför två olika tröjor ska ge cosinus ≥ 0,9 med histogrammodellen. Med den riktiga MobileNetV2 och YuNet ska den bli högre mot varan än mot en annan förpackning. Testet med riktiga modeller hoppas över om modellfilerna saknas; i molnmiljön körs det med modellerna hämtade.
 - **Ritning:** `draw_overlay` ger en bild i samma storlek, med grön kontur vid säker träff. Etiketten med å/ä/ö kraschar inte, inte heller utan typsnittsfil.
 - **API:** `capture` svarar med `found` och sparar inte bilder utan vara. Övriga vägar är oförändrade.
-- **E2E (800×480):** låtsaskameran visar en förpackning i rutan. Lär in når 24 och visar kamerabilden. Varan känns sedan igen. Gamla tester uppdateras till den nya rutan.
+- **E2E (800×480):** låtsaskameran visar en förpackning i rutan. Lär in visar kamerabilden och avslutas med en toast. (Låtsaskameran visar samma bild hela tiden, så dubblettregeln ger färre än 24 bilder.) Varan känns sedan igen. Gamla tester uppdateras till den nya rutan.
 - På Pi:n: `./deploy/update.sh`, sedan `scripts/camera_test.py --recognize` för att kontrollera konturen och kalibrera gränserna.
