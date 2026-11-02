@@ -570,6 +570,9 @@ def test_learn_then_recognise_item(vserver, browser):
     pg.get_by_role("button", name="Lär in").click()
     type_osk(pg, "banan")
     pg.locator(".link-choices").get_by_role("button", name="Banan", exact=True).click()
+    # A moment to get the item up from the keyboard before the first picture
+    pw.expect(pg.locator(".learn").get_by_text("Gör dig redo – håll upp varan i rutan")).to_be_visible()
+    assert api(base, "GET", f"/api/items/{item(base, 'Banan')['id']}/images") == []
     pw.expect(pg.get_by_role("progressbar")).to_be_visible()
     learn = pg.locator(".learn")
     pw.expect(learn.get_by_role("img", name="Kamerabild")).to_be_visible()

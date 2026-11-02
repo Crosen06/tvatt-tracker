@@ -101,7 +101,7 @@ En varas poäng är snittet av dess tre bästa bilder, så en enda udda bild ger
 
 Tips: nästan likadana förpackningar (mellan- och standardmjölk av samma märke) kan blandas ihop, så titta på namnet innan du trycker.
 
-**Finjustera:** kör `.venv/bin/python scripts/camera_test.py --recognize --seconds 30` (stäng skanningen i appen först) och håll upp några varor. Varje sekund skrivs ut om en vara hittades i rutan och hur stor del av rutan den täcker, samt de tre mest lika varorna med poäng mellan 0 och 1. Bilden `~/tvatt-data/kamera-test.jpg` visar rutan och konturen. Som standard räknas ≥ 0,80 som säker träff (och minst 0,05 före tvåan) och ≥ 0,65 som osäker. Ser rätt varor ut att få till exempel 0,9 och fel varor 0,7 kan du skärpa gränserna i `~/tvatt-data/tvatt.env`. Där kan du också ändra rutans storlek (andel av bildhöjden, 0,3–0,9, standard 0,6):
+**Finjustera:** kör `.venv/bin/python scripts/camera_test.py --recognize --seconds 30` (stäng skanningen i appen först) och håll upp några varor. Varje sekund skrivs ut om en vara hittades i rutan, hur stor del av rutan den täcker och hur mycket den skiljer sig i färg från det runt den (kontrast), samt de tre mest lika varorna med poäng mellan 0 och 1. Bilden `~/tvatt-data/kamera-test.jpg` visar rutan och konturen. Som standard räknas ≥ 0,80 som säker träff (och minst 0,05 före tvåan) och ≥ 0,65 som osäker. Ser rätt varor ut att få till exempel 0,9 och fel varor 0,7 kan du skärpa gränserna i `~/tvatt-data/tvatt.env`. Där kan du också ändra rutans storlek (andel av bildhöjden, 0,3–0,9, standard 0,6):
 
 ```
 TVATT_VISION_SURE=0.85
@@ -120,6 +120,7 @@ Inställningar som inte finns i appen skrivs i filen `~/tvatt-data/tvatt.env`, e
 | `TVATT_VISION_MAYBE=0.75` | Poäng som krävs för att visa förslag |
 | `TVATT_VISION_MARGIN=0.05` | Hur mycket bästa varan måste slå tvåan för säker träff |
 | `TVATT_VISION_BOX=0.5` | Rutans storlek i kamerabilden, som andel av bildhöjden (0,3–0,9, standard 0,6) |
+| `TVATT_VISION_CONTRAST=0.5` | Hur mycket varan måste skilja sig i färg från det runt den (0–1, standard 0,6). Sänk om varor i rutan inte hittas, höj om konturen hamnar på tröjan när rutan är tom |
 | `TVATT_FACE_MODEL=/sökväg/yunet.onnx` | Annan ansiktsmodell än `~/tvatt-data/models/face_yunet.onnx` |
 
 ### Kontrollera att allt fungerar på Pi:n

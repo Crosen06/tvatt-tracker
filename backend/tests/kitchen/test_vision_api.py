@@ -381,3 +381,52 @@ def test_overlay_drawn_in_stream_picture(vc, cam):
     assert vc.app.state.scanner.latest_frame() is not None
     raw = vc.app.state.scanner.latest_frame()
     assert (np.abs(raw.astype(int) - (113, 191, 47)) <= 30).all(axis=-1).sum() == 0  # the real picture stays clean
+
+
+EMPTY = np.full((480, 640, 3), (40, 40, 200), np.uint8)  # nothing that stands out in the box
+
+
+def test_barcode_with_no_item_in_box_learns_nothing(vc):
+    milk = new_item(vc, "Testmjölk")
+    vc.post("/api/barcodes", json={"code": CODE, "item_id": milk})
+    svc = vc.app.state.vision
+    svc.on_barcode(CODE, EMPTY)
+    svc.wait_idle()
+    assert svc.item_images(milk) == []
+    svc.on_barcode(CODE, scene("milk", person=True))
+    svc.wait_idle()
+    assert [i["source"] for i in svc.item_images(milk)] == ["scan"]
+
+
+def test_link_with_no_item_in_box_learns_nothing(vc):
+    milk = new_item(vc, "Testmjölk")
+    svc = vc.app.state.vision
+    svc.on_barcode(CODE, EMPTY)  # unknown code: the picture waits for the link …
+    svc.wait_idle()
+    assert vc.post("/api/barcodes", json={"code": CODE, "item_id": milk}).status_code == 200
+    assert svc.item_images(milk) == []  # … but there was no item in it
+
+
+def test_barcode_does_not_wait_for_analysis(vc):
+    import threading
+
+    svc = vc.app.state.vision
+    assert svc.available  # loaded (and old pictures purged)
+    held = threading.Event()
+    release = threading.Event()
+
+    def busy():
+        with svc._lock:  # an analysis in progress
+            held.set()
+            release.wait(5)
+
+    t = threading.Thread(target=busy)
+    t.start()
+    held.wait(2)
+    start = time.monotonic()
+    svc.on_barcode(CODE, EMPTY)
+    took = time.monotonic() - start
+    release.set()
+    t.join()
+    svc.wait_idle()
+    assert took < 0.2

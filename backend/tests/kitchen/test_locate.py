@@ -133,3 +133,38 @@ def test_real_face_model(monkeypatch):
     assert faces is not None
     assert faces.find(np.full((480, 640, 3), 150, np.uint8)) == []
     assert faces.find(np.full((1080, 1920, 3), 150, np.uint8)) == []
+
+
+@pytest.mark.parametrize("shirt", [0, 1])
+@pytest.mark.parametrize("seed", range(4))
+def test_empty_box_with_patterned_shirt_is_not_found(shirt, seed):
+    found = locate.locate(scene(None, person=True, shirt=shirt, seed=seed))
+    assert not found.found and found.contour is None
+
+
+def test_found_item_stands_out_from_its_surroundings(monkeypatch):
+    monkeypatch.delenv("TVATT_VISION_CONTRAST", raising=False)
+    found = locate.locate(scene("milk", person=True, shirt=0))
+    assert found.found and found.contrast >= locate.min_contrast() == 0.6
+    monkeypatch.setenv("TVATT_VISION_CONTRAST", "0.99")  # stricter than the milk on stripes (≈0.95)
+    assert not locate.locate(scene("milk", person=True, shirt=0)).found
+    monkeypatch.setenv("TVATT_VISION_CONTRAST", "x")
+    assert locate.min_contrast() == 0.6
+
+
+@pytest.mark.parametrize("item, shirt", [((235, 235, 235), (60, 60, 60)), ((20, 20, 20), (60, 60, 60))])
+def test_grey_items_are_found_by_lightness(item, shirt):
+    frame = np.full((480, 640, 3), shirt, np.uint8)
+    x, y, w, h = package_rect()
+    frame[y:y + h, x:x + w] = item
+    frame = np.clip(frame + np.random.default_rng(2).normal(0, 3, frame.shape), 0, 255).astype(np.uint8)
+    assert locate.locate(frame).found
+
+
+def test_missing_face_model_logged_once(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("TVATT_FACE_MODEL", raising=False)
+    monkeypatch.setattr(locate, "_face_warned", False)
+    with caplog.at_level(logging.INFO):
+        assert locate.load_faces(tmp_path) is None
+        assert locate.load_faces(tmp_path) is None
+    assert sum("face model" in r.getMessage() for r in caplog.records) == 1

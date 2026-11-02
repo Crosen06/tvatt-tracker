@@ -7,11 +7,13 @@ export const LEARN_TARGET = 24;
 const MAX_TRIES = 48;
 const EVERY_MS = 400;
 const HINT_AFTER = 5; // tries in a row without an item in the box
+const START_AFTER_MS = 1500; // time to get the item up from the keyboard, so the shirt is not learned
 
 // Takes pictures of an item while it is turned in the guide box; the live picture shows its outline.
 export default function LearnSheet({ item, onClose }) {
   const [saved, setSaved] = useState(0);
   const [missing, setMissing] = useState(0);
+  const [started, setStarted] = useState(false);
   const [error, setError] = useState(null);
   const [streamKey] = useState(() => Date.now());
   const stopped = useRef(false);
@@ -21,6 +23,9 @@ export default function LearnSheet({ item, onClose }) {
     let count = 0;
     let misses = 0;
     (async () => {
+      await new Promise((res) => setTimeout(res, START_AFTER_MS));
+      if (stopped.current) return;
+      setStarted(true);
       for (let tries = 0; tries < MAX_TRIES && count < LEARN_TARGET && !stopped.current; tries++) {
         try {
           const r = await api.post("/api/vision/capture", { item_id: item.id });
@@ -55,7 +60,9 @@ export default function LearnSheet({ item, onClose }) {
             <img src={`/api/scan/stream?k=${streamKey}`} alt="Kamerabild" />
           </div>
           <div className="learn-side">
-            <p className="scan-idle-title">Håll varan i rutan och vrid den långsamt – visa fram, bak och sidor</p>
+            <p className="scan-idle-title">
+              {started ? "Håll varan i rutan och vrid den långsamt – visa fram, bak och sidor" : "Gör dig redo – håll upp varan i rutan"}
+            </p>
             <div className="learn-bar" role="progressbar" aria-valuemin={0} aria-valuemax={LEARN_TARGET} aria-valuenow={saved}>
               <span style={{ width: `${(saved / LEARN_TARGET) * 100}%` }} />
             </div>

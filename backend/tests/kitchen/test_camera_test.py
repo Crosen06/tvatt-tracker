@@ -90,7 +90,7 @@ def test_camera_test_recognize_prints_best_matches(tmp_path, monkeypatch, capsys
     assert "histogram-v1" in text and "2 inlärda bilder av 2 varor" in text
     line = next(l for l in text.splitlines() if l.startswith("  Banan"))
     assert "Kaffe" in line and "säker" in line
-    assert "✓ vara hittad (" in text and "% av rutan)" in text
+    assert "✓ vara hittad (" in text and "% av rutan, kontrast " in text
     saved = cv2.imread(str(out))
     raw = scene("banana", seed=3)
     assert saved.shape == raw.shape

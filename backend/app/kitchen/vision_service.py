@@ -56,6 +56,8 @@ class VisionService:
     # --- model -----------------------------------------------------------------------------------
 
     def _ensure(self):
+        if self._loaded and self._purged:  # fast path without the lock: the scanner thread must never wait
+            return self._embedder
         with self._lock:
             if not self._loaded:
                 self._embedder, self.message = self._loader(self._data_dir)
@@ -65,7 +67,7 @@ class VisionService:
             emb = self._embedder
             purge = emb is not None and not self._purged
             self._purged = self._purged or purge
-        if purge:  # outside self._lock: _purge_legacy takes _save_lock, which _save holds while calling _ensure
+        if purge:  # outside self._lock where possible; the lock order is always _lock → _save_lock
             self._purge_legacy()
         return emb
 
@@ -82,9 +84,10 @@ class VisionService:
     def _analyse(self, frame):
         """(vector, jpeg bytes of the 224×224 picture, locate.Located) for a camera frame."""
         emb = self._require()
-        with self._lock:
+        with self._lock:  # the models are not thread-safe; GrabCut (pure) runs outside the lock
             faces = self._faces.find(frame) if self._faces is not None else ()
-            found = locate.locate(frame, faces)
+        found = locate.locate(frame, faces)
+        with self._lock:
             vec = emb.embed(found.image)
         return vec, self._jpeg(found.image), found
 
@@ -269,8 +272,10 @@ class VisionService:
 
     def _learn_barcode(self, code: str, frame) -> None:
         try:
-            vec, jpeg, _ = self._analyse(frame)
+            vec, jpeg, found = self._analyse(frame)
             self._watcher.hold(vec)
+            if not found.found:
+                return  # the code was read, but no item is in the box (e.g. held to the side): nothing to learn
             conn = self._conn()
             try:
                 row = conn.execute(

@@ -153,7 +153,8 @@ def main(argv=None) -> int:
                 vec = embedder.embed(found.image)
                 ms = (time.perf_counter() - t0) * 1000
                 matches = gallery.match(vec)
-                print(f"✓ vara hittad ({round(found.area * 100)} % av rutan)" if found.found else "– ingen vara i rutan")
+                print(f"✓ vara hittad ({round(found.area * 100)} % av rutan, kontrast {found.contrast:.2f})" if found.found
+                      else "– ingen vara i rutan")
                 shown = " · ".join(f"{names.get(i, i)} {s:.2f}" for i, s in matches) or "inga inlärda varor"
                 print(f"  {shown} → {DECISION[vision.decide(matches)]} ({ms:.0f} ms)", flush=True)
                 label = names.get(matches[0][0], "") if matches else ""

@@ -19,6 +19,9 @@ MARGIN = 0.2  # ring around the box, as a share of its side, that shows what is 
 WORK_SIZE = 200  # GrabCut runs on the work area scaled to at most this many pixels a side
 ITERATIONS = 3
 MIN_AREA, MAX_AREA = 0.04, 0.92  # share of the box a cut-out must cover to count as the item
+# Bhattacharyya distance between the cut-out's colours and the ring's; below it there is no item, just more
+# of the same (e.g. a patterned shirt). Not calibrated on a real camera; TVATT_VISION_CONTRAST overrides it.
+MIN_CONTRAST = 0.6
 PAD = 0.1  # space around the item in the model's picture
 DILATE = 3  # px of the picture kept around the item's edge
 GREY = (124, 116, 104)  # BGR ImageNet mean: ≈ 0 after normalisation
@@ -55,6 +58,14 @@ def box_fraction() -> float:
     return min(BOX_MAX, max(BOX_MIN, value))
 
 
+def min_contrast() -> float:
+    try:
+        value = float(os.environ.get("TVATT_VISION_CONTRAST", MIN_CONTRAST))
+    except ValueError:
+        return MIN_CONTRAST
+    return min(1.0, max(0.0, value)) if value == value else MIN_CONTRAST
+
+
 def guide_box(shape, fraction: float | None = None) -> tuple[int, int, int, int]:
     """(x, y, w, h) of the centred square the item is held in; `shape` is (h, w[, c])."""
     h, w = shape[:2]
@@ -69,6 +80,7 @@ class Located:
     found: bool
     image: object  # 224×224 BGR uint8: what the model sees and what is saved
     area: float  # share of the box covered by the item (0 when not found)
+    contrast: float = 0.0  # how much the cut-out's colours differ from its surroundings (0–1)
 
 
 def _clip_rect(x0, y0, x1, y1, w, h):
@@ -76,7 +88,7 @@ def _clip_rect(x0, y0, x1, y1, w, h):
 
 
 def _cut(frame, box, faces):
-    """The item's mask in the work area, or None. Returns (mask, (x0, y0), contour, share)."""
+    """The item in the work area, or None. Returns (small mask, scale, (x0, y0), contour, share, contrast)."""
     cv2, np = _cv2(), _np()
     h, w = frame.shape[:2]
     bx, by, bs, _ = box
@@ -119,32 +131,56 @@ def _cut(frame, box, faces):
     share = float(filled.sum()) / box_cells
     if not MIN_AREA <= share <= MAX_AREA:
         return None
+    # An item stands out from what is around it; a patch of patterned shirt does not.
+    ring = (1 - inside).astype(np.uint8)
+    ring[0, :] = ring[-1, :] = 0
+    ring[:, 0] = ring[:, -1] = 0
+    contrast = _contrast(small, filled, ring)
+    if contrast < min_contrast():
+        return None
     approx = cv2.approxPolyDP(biggest, 0.01 * cv2.arcLength(biggest, True), True).reshape(-1, 2)
     contour = [
         (min(w - 1, max(0, round(x0 + px / scale))), min(h - 1, max(0, round(y0 + py / scale))))
         for px, py in approx.tolist()
     ]
-    full = cv2.resize(filled, (rw, rh), interpolation=cv2.INTER_NEAREST)
-    return full, (x0, y0), contour, share
+    return filled, scale, (x0, y0), contour, share, contrast
 
 
-def _item_image(frame, mask, origin):
-    """The item on neutral grey, in a square around it, scaled to 224×224."""
+def _contrast(small, item, ring) -> float:
+    """Bhattacharyya distance between the Lab colour histograms of the item and the ring around it.
+
+    Lab rather than hue: white, grey and black items differ from their surroundings in lightness only.
+    """
+    cv2 = _cv2()
+    if not ring.any():
+        return 1.0
+    lab = cv2.cvtColor(small, cv2.COLOR_BGR2Lab)
+    hists = []
+    for m in (item, ring):
+        hist = cv2.calcHist([lab], [0, 1, 2], m, [8, 6, 6], [0, 256, 0, 256, 0, 256])
+        cv2.normalize(hist, hist, 1, 0, cv2.NORM_L1)
+        hists.append(hist)
+    return float(cv2.compareHist(hists[0], hists[1], cv2.HISTCMP_BHATTACHARYYA))
+
+
+def _item_image(frame, small_mask, scale, origin):
+    """The item on neutral grey, in a square around it, scaled to 224×224. Works on the crop only."""
     cv2, np = _cv2(), _np()
     h, w = frame.shape[:2]
     x0, y0 = origin
-    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * DILATE + 1, 2 * DILATE + 1))
-    mask = cv2.dilate(mask, k)
-    full = np.zeros((h, w), np.uint8)
-    full[y0:y0 + mask.shape[0], x0:x0 + mask.shape[1]] = mask
-    rx, ry, rw, rh = cv2.boundingRect(mask)
-    rx, ry = rx + x0, ry + y0
-    side = min(max(h, w), max(1, int(max(rw, rh) * (1 + 2 * PAD))))
+    rx, ry, rw, rh = cv2.boundingRect(small_mask)
+    rx, ry = x0 + rx / scale, y0 + ry / scale
+    rw, rh = rw / scale, rh / scale
+    side = min(h, w, max(1, int(max(rw, rh) * (1 + 2 * PAD))))
     cx, cy = rx + rw / 2, ry + rh / 2
     sx = int(min(max(0, cx - side / 2), max(0, w - side)))
     sy = int(min(max(0, cy - side / 2), max(0, h - side)))
     crop = frame[sy:sy + side, sx:sx + side].copy()
-    crop[full[sy:sy + side, sx:sx + side] == 0] = GREY
+    # The mask, scaled from the work area onto the crop (pixels outside the work area are not the item).
+    m = np.float32([[1 / scale, 0, x0 - sx], [0, 1 / scale, y0 - sy]])
+    mask = cv2.warpAffine(small_mask, m, (crop.shape[1], crop.shape[0]), flags=cv2.INTER_NEAREST, borderValue=0)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * DILATE + 1, 2 * DILATE + 1))
+    crop[cv2.dilate(mask, k) == 0] = GREY
     return _square_resize(crop)
 
 
@@ -183,8 +219,8 @@ def locate(frame, faces=()) -> Located:
         log.debug("GrabCut failed", exc_info=True)
         cut = None
     if cut is not None:
-        mask, origin, contour, share = cut
-        return Located(box, contour, True, _item_image(frame, mask, origin), round(share, 3))
+        mask, scale, origin, contour, share, contrast = cut
+        return Located(box, contour, True, _item_image(frame, mask, scale, origin), round(share, 3), round(contrast, 3))
     return Located(box, None, False, _box_image(frame, box, faces), 0.0)
 
 
@@ -225,6 +261,9 @@ def load_faces(data_dir: Path) -> FaceFinder | None:
     global _face_warned
     path = face_model_path(data_dir)
     if not path.is_file():
+        if not _face_warned:
+            _face_warned = True
+            log.info("No face model at %s; faces are not filtered out (run deploy/get-model.sh)", path)
         return None
     try:
         return FaceFinder(path)
