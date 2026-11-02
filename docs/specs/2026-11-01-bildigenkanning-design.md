@@ -18,7 +18,7 @@ Lyckat resultat: de varor hushållet brukar köpa känns igen på 1–2 sekunder
 ## 3. Avgränsningar
 
 - Ingen egen träning av en modell. En förtränad modell ger "fingeravtryck" (embedding), och igenkänningen jämför med närmaste granne.
-- Bara en vara åt gången, i mitten av bilden. Ingen objektdetektering.
+- Bara en vara åt gången, i mitten av bilden. Ingen objektdetektering. *(Ändrat 2026-11-02: varan klipps ut ur en ruta i bilden, se `2026-11-02-varans-kontur-design.md`.)*
 - Nästan likadana förpackningar (mellan- och standardmjölk) kan blandas ihop. Därför bekräftar man alltid genom att trycka på en åtgärd.
 - Gränsvärdena är en kvalificerad gissning och kalibreras på Pi:n med `scripts/camera_test.py --recognize`.
 

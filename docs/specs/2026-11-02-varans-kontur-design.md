@@ -48,7 +48,7 @@ Modulen tar en kamerabild och returnerar var varan finns och vilken bild modelle
 ### 4.3 Kontur
 1. GrabCut körs med en mask: arbetsområdet utanför rutan och ansiktena är säker bakgrund (`GC_BGD`), och rutan är trolig förgrund (`GC_PR_FGD`). Arbetsområdets yttersta pixelrad är alltid `GC_BGD`, så att det finns bakgrundsprover även om rutan når bildkanten. Tre iterationer.
 2. Förgrunden (`GC_FGD`/`GC_PR_FGD`) inom rutan rensas med öppning (3×3). Sedan behålls den största sammanhängande delen och dess hål fylls.
-3. Delen godtas som vara om den täcker **4–92 %** av rutan. Annars, eller om GrabCut ger fel, räknas ingen vara som hittad (`found=False`).
+3. Delen godtas som vara om den täcker **4–92 %** av rutan och skiljer sig i färg från ramen runt rutan. Färgskillnaden är Bhattacharyya-avståndet mellan Lab-histogrammen (8×6×6) för delen och ramen, och det måste vara **≥ 0,6**. Gränsen ändras med `TVATT_VISION_CONTRAST`. Annars, eller om GrabCut ger fel, räknas ingen vara som hittad (`found=False`). *(Tillagt efter granskningen: en tom ruta framför en rutig tröja gav annars en "vara" på 67 % av rutan.)*
 4. Konturen förenklas (`approxPolyDP`, 1 % av omkretsen) och räknas om till koordinater i hela bilden.
 
 ### 4.4 Modellens bild (224×224)
@@ -101,7 +101,8 @@ Konturen ritas i själva bilden, så den hänger alltid ihop med bilden, även m
 
 ## 8. Lär in
 
-- **24 bilder.** Ett försök var 400:e ms, högst **48 försök**.
+- **24 bilder.** Ett försök var 400:e ms, högst **48 försök**. Det första försöket görs efter 1,5 s, och under tiden står "Gör dig redo – håll upp varan i rutan". Då hinner man ta upp varan efter att ha valt den på tangentbordet, så att tröjan inte lärs in.
+- **Automatisk inlärning** (läst eller kopplad streckkod) sparar bara bilder där en vara hittades i rutan.
 - `POST /api/vision/capture` svarar `{saved, count, found}`. Bilder där ingen vara hittas sparas inte (`saved: false, found: false`).
 - **Inlärningsvyn** visar kamerabilden (samma MJPEG-ström) med rutan och konturen, förloppsindikatorn och "12 av 24 bilder". Har de senaste 5 försöken saknat vara står "Håll varan i rutan".
 - Texten är "Håll varan i rutan och vrid den långsamt – visa fram, bak och sidor".
@@ -110,7 +111,7 @@ Konturen ritas i själva bilden, så den hänger alltid ihop med bilden, även m
 ## 9. Installation och verktyg
 
 - `deploy/get-model.sh` hämtar också YuNet till `~/tvatt-data/models/face_yunet.onnx`, med sha256 `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4`, från `https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx`. Skriptet hämtar båda modellerna och kontrollerar var för sig. Ett fel för ansiktsmodellen stoppar inte installationen. Sökvägen kan ändras med `TVATT_FACE_MODEL`.
-- `scripts/camera_test.py --recognize` skriver per sekund ut om en vara hittades, hur stor del av rutan den täcker, tid för analysen och de tre bästa varorna med poäng. Bilden som sparas (`~/tvatt-data/kamera-test.jpg`) får rutan, konturen och etiketten inritade.
+- `scripts/camera_test.py --recognize` skriver per sekund ut om en vara hittades, hur stor del av rutan den täcker, färgskillnaden (kontrast), tid för analysen och de tre bästa varorna med poäng. Bilden som sparas (`~/tvatt-data/kamera-test.jpg`) får rutan, konturen och etiketten inritade.
 - README: avsnittet "Känna igen varor på bilden" uppdateras (rutan, kontur och färger, 24 bilder, att gamla bilder tas bort, `TVATT_VISION_BOX`, ansiktsmodellen).
 
 ## 10. Felhantering
